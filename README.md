@@ -112,7 +112,6 @@ If you operate an AI character platform (Hoshino, Replika, Glow, Zhumengdao, etc
 
 Email: nohn3043@gmail.com
 X (Twitter): @nohn188728
-GitHub: github.com/nohn3043/spl-audit-engine
 
 ---
 
