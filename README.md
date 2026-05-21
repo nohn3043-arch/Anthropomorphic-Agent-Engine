@@ -46,12 +46,6 @@ Licensing is offered as **Annual Subscription** or **Perpetual License**.
 | Initial Psychology Matrix & Rule Library | JSON / YAML configuration files |
 | Integration Docs & Code Examples | PDF + sample repository |
 
-**Pricing model:**
-
-| License Type | Price Range | Target Customers |
-|--------------|-------------|------------------|
-| **Annual Subscription** | 30k – 80k USD / year | Platforms needing continuous support & rule updates |
-| **Perpetual License** | 150k – 300k USD (one‑time) | Technically strong teams that want long‑term ownership |
 
 > The annual fee primarily covers: **40% strategic consulting + 25% technical support + 20% software license + 15% rule‑base updates**  
 > You are not just buying software – you are buying ongoing cognitive tuning and architecture guidance from the creator of the SPL language.
