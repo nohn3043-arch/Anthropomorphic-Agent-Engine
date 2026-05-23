@@ -27,3 +27,4 @@
 - Outputs ready-to-use prompts compatible with **Kimi, ChatGPT, Dify, Coze, LangChain**, and any LLM platform.
 - Fully serializable state for database storage, memory persistence, and cross-session continuity.
 ---
+## 📜 License This project is dual-licensed: - ✅ **Non-commercial use**: Follow the [MIT License](LICENSE) in the root directory, free for personal use, research, and non-commercial projects. - ⚠️ **Commercial use**: **Separate official commercial authorization is required**. For any commercial scenarios including enterprise integration, game development, virtual human products, and paid services, please contact for commercial license.
