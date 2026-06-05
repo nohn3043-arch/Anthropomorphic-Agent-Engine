@@ -33,10 +33,11 @@ when agents are expected to exist and interact over the long term.**
 - **Consistency Audit**: Ensures responses match current personality, state, and role — prevents OOC (Out-of-Character) behavior.
 - **Compliance & Safety**: Rules-based filtering, sensitive content blocking, and standardized output.
 - **Full Traceability**: Every decision includes responsibility account, timestamp, and audit report.
-- **email**：ai@nohnlins.com
 
 ### 4. Standardized Integration
 - Outputs ready-to-use prompts compatible with **Kimi, ChatGPT, Dify, Coze, LangChain**, and any LLM platform.
 - Fully serializable state for database storage, memory persistence, and cross-session continuity.
 ---
 ## 📜 License This project is dual-licensed: - ✅ **Non-commercial use**: Follow the [MIT License](LICENSE) in the root directory, free for personal use, research, and non-commercial projects. - ⚠️ **Commercial use**: **Separate official commercial authorization is required**. For any commercial scenarios including enterprise integration, game development, virtual human products, and paid services, please contact for commercial license.
+ **email**：ai@nohnlins.com
+ 
