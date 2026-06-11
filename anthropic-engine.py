@@ -1,7 +1,21 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List, Callable, Tuple
 import math
 import time
+
+"""
+流体情感引擎 (Fluid Emotion Engine) V1.0
+========================================
+一个基于流体动力学的数字生命情感内核，模拟人类真实的情绪流动、演化与交互特性。
+
+核心特性：
+1. 情绪有物理属性：水位、粘滞度、流速、溢出、虹吸
+2. 动态情绪区间：疲劳、创伤会永久改变情绪的上下限
+3. 二阶情绪自动生成：对情绪的情绪（如愤怒后的愧疚）
+4. 互斥情绪博弈：矛盾情绪双向虹吸，能量守恒
+5. 100%决定论：所有情绪变化可追溯、可审计、可预测
+
+"""
 
 @dataclass
 class AICharacterProfile:
@@ -17,6 +31,15 @@ class AICharacterProfile:
         "forbidden": [], "fallback": []
     })
     emotion_coupling_matrix: Dict[str, Dict[str, Callable[[float, float], float]]] = field(default_factory=dict)
+
+    # --- 二阶情绪注册器（通用可插拔）---
+    second_order_rules: Dict[str, Tuple[str, float]] = field(default_factory=dict)
+    """
+    二阶情绪规则字典：
+    key: 一阶情绪标签
+    value: (二阶情绪标签, 生成系数)
+    示例：{"愤怒": ("愧疚", 0.3)} 表示 愤怒会以0.3的系数生成愧疚
+    """
 
     # --- 生命系统变量 ---
     affinity: float = 0.0               
@@ -34,6 +57,24 @@ class AICharacterProfile:
     # --- 流体动态系统 ---
     fluid_state: Dict[str, float] = field(default_factory=dict)
     base_viscosity: float = 0.3                                
+    """基础情绪粘滞度 (0=瞬间改变, 接近1=极度迟缓)"""
+
+    # ==========================================
+    # 二阶情绪注册API（供开发者自定义）
+    # ==========================================
+    def register_second_order_emotion(self, 
+                                     first_order: str, 
+                                     second_order: str, 
+                                     generation_factor: float = 0.5):
+        """
+        注册一个二阶情绪生成规则
+        
+        Args:
+            first_order: 触发情绪（一阶）
+            second_order: 生成情绪（二阶）
+            generation_factor: 生成系数，范围0.0~1.0，越大生成越快
+        """
+        self.second_order_rules[first_order] = (second_order, generation_factor)
 
     # ==========================================
     # 状态更新逻辑
@@ -61,7 +102,6 @@ class AICharacterProfile:
         # 3. 创伤修复
         if "betrayal_trauma" in self.trauma_tags and self.trauma_recovery.get("betrayal_trauma", 0.0) >= 1.0:
             self.trauma_tags.remove("betrayal_trauma")
-            print(f"✅【创伤修复】{self.name} 已重建信任。")
 
         self.last_interaction_time = current_time
 
@@ -73,7 +113,6 @@ class AICharacterProfile:
             self.trauma_tags.append("betrayal_trauma")
             self.trauma_recovery["betrayal_trauma"] = 0.0
             self.affinity = max(0.05, self.affinity - 0.4)
-            print(f"⚠️【人格变异】{self.name} 经历信任危机！")
         elif event_name == "loss" and "loss_trauma" not in self.trauma_tags:
             self.trauma_tags.append("loss_trauma")
 
@@ -89,18 +128,19 @@ class AICharacterProfile:
     # 动态区间计算（情绪河床）
     # ==========================================
     def _get_dynamic_intervals(self, tag: str, info: Dict[str, Any]) -> tuple[float, float, float]:
+        """返回动态调整后的 (start_weight, end_weight, threshold)"""
         start = info.get('start_weight', 1.0)
         end = info.get('end_weight', 1.0)
         threshold = info.get('threshold', 0.0)
 
-        # 能量挤压效应
+        # 能量挤压效应：疲惫时正面情绪上限缩水，负面情绪门槛降低
         if self.energy < 30:
             if any(k in tag for k in ["热情", "耐心", "温柔", "克制", "信任"]):
                 end *= max(0.1, self.energy / 30.0)
             if any(k in tag for k in ["暴躁", "冷漠", "自我", "戒备"]):
                 threshold *= 0.5 
 
-        # 创伤地形扭曲
+        # 创伤地形扭曲：背叛创伤永久改变情绪区间
         if "betrayal_trauma" in self.trauma_tags:
             recovery = self.trauma_recovery.get("betrayal_trauma", 0.0)
             impact = 1.0 - recovery
@@ -153,22 +193,17 @@ class AICharacterProfile:
     def flow_psychology_fluids(self, delta_time: float = 1.0):
         target_weights = self._calculate_target_weights()
         
-        # 1. 应用情绪耦合调制
+        # 1. 应用情绪耦合调制（非单调关系）
         for source_tag, targets in self.emotion_coupling_matrix.items():
             source_level = self.fluid_state.get(source_tag, 0.0)
             for target_tag, mod_func in targets.items():
                 if target_tag in target_weights:
                     target_weights[target_tag] = mod_func(source_level, target_weights[target_tag])
 
-        # 2. 二阶情绪自动生成
-        second_order_map = {
-            "绝对占有欲": ("自我厌恶", 0.8),
-            "天皇真焰": ("背德负罪感", 0.9),
-            "九幽凛冰": ("天皇真焰", 0.7),
-            "爱意": ("恐惧", 0.7)
-        }
-        for first_order, (second_order, factor) in second_order_map.items():
+        # 2. 通用二阶情绪自动生成（无角色专属硬编码）
+        for first_order, (second_order, factor) in self.second_order_rules.items():
             if first_order in self.fluid_state and second_order in self.psychology_matrix:
+                # 二阶情绪生成速率与一阶情绪强度和时间成正比
                 generated_level = self.fluid_state[first_order] * factor * 0.1 * delta_time
                 max_level = self.psychology_matrix[second_order].get('end_weight', 1.0)
                 self.fluid_state[second_order] = min(
@@ -176,7 +211,7 @@ class AICharacterProfile:
                     self.fluid_state.get(second_order, 0.0) + generated_level
                 )
 
-        # 3. 流体平滑流动
+        # 3. 流体平滑流动（能量驱动流速）
         energy_factor = max(0.1, self.energy / 100.0)
         alpha = (1.0 - self.base_viscosity) * energy_factor * delta_time
         alpha = min(1.0, max(0.01, alpha))
@@ -187,10 +222,11 @@ class AICharacterProfile:
             new_level = current_level + alpha * (target_level - current_level)
             self.fluid_state[tag] = round(max(0.0, new_level), 3)
 
-        # 4. 互斥组双向博弈虹吸
+        # 4. 互斥组双向博弈虹吸（能量守恒）
         self._apply_fluid_spillover()
 
     def _apply_fluid_spillover(self):
+        """处理互斥组的情绪双向博弈虹吸"""
         for group in self.exclusive_groups:
             group_levels = {tag: self.fluid_state.get(tag, 0.0) for tag in group if tag in self.fluid_state}
             if len(group_levels) < 2: continue
@@ -199,12 +235,13 @@ class AICharacterProfile:
             leader, follower = sorted_tags[0], sorted_tags[1]
             leader_level, follower_level = group_levels[leader], group_levels[follower]
             
+            # 情绪差距越大，虹吸越强；差距越小，博弈越激烈
             gap = leader_level - follower_level
             siphon_rate = 0.1 + 0.4 * max(0.0, gap)
             
             siphon_amount = follower_level * siphon_rate
             self.fluid_state[follower] -= siphon_amount
-            self.fluid_state[leader] += siphon_amount * 0.7
+            self.fluid_state[leader] += siphon_amount * 0.7  # 30%能量损耗，符合热力学第二定律
 
     # ==========================================
     # Prompt输出
@@ -242,3 +279,45 @@ class AICharacterProfile:
             prompt.append("\n【绝对禁止】\n- " + "\n- ".join(self.behavior_rules['forbidden']))
 
         return "\n".join(prompt)
+
+
+# ==========================================
+# 通用示例：普通人角色演示
+# ==========================================
+if __name__ == "__main__":
+    print("===== 流体情感引擎 V1.0 通用示例 =====\n")
+    
+    # 创建一个普通人角色
+    person = AICharacterProfile(
+        name="张明",
+        age=28,
+        relationship="同事",
+        job_identity="普通上班族"
+    )
+
+    # 定义基础情绪矩阵
+    person.psychology_matrix = {
+        "愤怒": {"start_weight": 0.0, "end_weight": 1.0, "threshold": 0.0, "description": "生气、不满的情绪"},
+        "愧疚": {"start_weight": 0.0, "end_weight": 0.8, "threshold": 0.0, "description": "做错事后的自责感"},
+        "喜悦": {"start_weight": 0.0, "end_weight": 1.0, "threshold": 0.0, "description": "开心、愉悦的情绪"},
+        "不安": {"start_weight": 0.0, "end_weight": 0.7, "threshold": 0.0, "description": "好事发生后的不真实感"},
+        "恐惧": {"start_weight": 0.0, "end_weight": 1.0, "threshold": 0.0, "description": "害怕、焦虑的情绪"},
+        "信任": {"start_weight": 0.2, "end_weight": 0.9, "threshold": 0.1, "description": "对他人的信任感"}
+    }
+
+    # 注册通用人类二阶情绪规则
+    person.register_second_order_emotion("愤怒", "愧疚", 0.3)   # 愤怒后会产生愧疚
+    person.register_second_order_emotion("喜悦", "不安", 0.25)  # 极度开心后会感到不安
+    person.register_second_order_emotion("恐惧", "愤怒", 0.4)   # 恐惧会转化为愤怒
+
+    # 模拟：和同事吵架，愤怒拉满
+    person.set_affinity(0.6)
+    person.fluid_state["愤怒"] = 0.9
+    print("=== 场景1：刚和同事吵完架 ===")
+    print(person.to_ai_prompt())
+    print("\n" + "="*60 + "\n")
+
+    # 模拟：冷静1小时后（delta_time=60）
+    print("=== 场景2：冷静1小时后 ===")
+    person.flow_psychology_fluids(delta_time=60)
+    print(person.to_ai_prompt())
