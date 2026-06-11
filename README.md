@@ -13,7 +13,7 @@ when agents are expected to exist and interact over the long term.**
 ---
 ## 🚀 Core Features
 ### 1. Dynamic Personality System
-- Affinity - Driven Evolution: Character traits change smoothly according to the relationship intimacy, which ranges from 0.0 to 1.0. This simulates the entire process from being a stranger to becoming a trusted partner. In addition, dynamic psychological parameter intervals could also be incorporated. For example, certain internal psychological parameters vary within intervals such as [0, 100] along with the change of the relationship intimacy, which further enriches the dynamic change mechanism of the personality system.
+- Affinity - Driven Evolution: Character traits change smoothly according to the relationship intimacy, which ranges from 0.0 to 1.0. This simulates the entire process from being a stranger to becoming a trusted partner. In addition, dynamic psychological parameter intervals could also be incorporated. For example, certain internal psychological parameters vary within intervals such as [0, 0.1] along with the change of the relationship intimacy, which further enriches the dynamic change mechanism of the personality system.
 
 - **Multi-Mode Psychological Curves**:
   - ✅ **Linear**: Steady, predictable changes
