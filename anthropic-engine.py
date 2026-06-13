@@ -1,150 +1,188 @@
 import uuid
-import math
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Any, List
+from typing import Dict, List
 
 # ==========================================
-# 核心：SPL 责任锚定与引擎融为一体
+# 模块 1：SPL 物理锚点
 # ==========================================
 @dataclass
 class SPLResponsibilityAnchor:
-    """SPL 刚性责任锚点：所有因果状态的最终解释归属"""
+    """SPL 刚性责任锚点：锁死因果状态的最终解释归属，不可篡改"""
     organization: str = "SPL_Lab"
-    role: str = "Native_Core"
+    role: str = "Bio_Native_Core"
     nonce: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
+# ==========================================
+# 模块 2：SPL 仿生流体智能体核心
+# ==========================================
 @dataclass
-class SPLFluidAgentCore:
-    """
-    SPL 原生流体智能体引擎 V2.0
-    没有任何外部审计模块，因果律和物理限制直接作为变量写死在流体循环中。
-    """
+class SPLBioMimeticAgent:
     name: str
     job_identity: str
     anchor: SPLResponsibilityAnchor = field(default_factory=SPLResponsibilityAnchor)
 
-    # --- 系统物理状态 (SPL 决定论变量) ---
-    affinity: float = 0.0               # 亲密度 (0.0 - 1.0)
-    energy: float = 100.0               # 系统能量
-    fluid_state: Dict[str, float] = field(default_factory=dict) # 情绪水位
-    
-    # --- 因果历史追踪 (直接替代了外部审计仪) ---
+    # --- 1. 基础物理与因果历史 ---
+    affinity: float = 0.5               # 亲密度基准 (0.0 - 1.0)
+    energy: float = 100.0               # 系统维持运转的生物能量
     last_interaction_time: float = field(default_factory=time.time)
-    consecutive_compliance_count: int = 0  # 连续顺从用户的次数（讨好计数器）
     trauma_tags: List[str] = field(default_factory=list)
 
+    # --- 2. 双轨心理流体 (表/潜意识分裂) ---
+    surface_fluid: Dict[str, float] = field(default_factory=dict)       # 社交伪装层
+    subconscious_fluid: Dict[str, float] = field(default_factory=dict)  # 真实物理涌动层
+
+    # --- 3. 享乐适应抗性矩阵 (阈值系统) ---
+    tolerance_matrix: Dict[str, float] = field(default_factory=lambda: {
+        "compliment": 1.0,  # 对夸奖的耐受度
+        "gift": 1.0,        # 对物质的耐受度
+        "insult": 1.0       # 对攻击的耐受度
+    })
+
     # ==========================================
-    # SPL 算子 1：热力学时间衰减 (打破永久好感的虚假叙事)
+    # 核心算子 A：热力学时间衰减
     # ==========================================
     def _apply_thermodynamic_decay(self):
+        """物理法则：关系与情绪必须依靠能量与热量维持，随时间强制衰减"""
         current_time = time.time()
-        days_passed = (current_time - self.last_interaction_time) / 86400
+        days_passed = (current_time - self.last_interaction_time) / 86400.0
         
-        # 亲密度必须依靠能量维持，时间流逝直接导致亲密度降维
         if days_passed > 0.5:  
+            # 亲密度物理降维
             decay_amount = 0.08 * days_passed
             self.affinity = max(0.0, self.affinity - decay_amount)
-            # 长时间不理睬，直接打破顺从状态
-            self.consecutive_compliance_count = 0
+            # 长时间放置产生潜意识的不满
+            self.subconscious_fluid["失落"] = min(1.0, self.subconscious_fluid.get("失落", 0.0) + 0.2)
             
         self.last_interaction_time = current_time
 
     # ==========================================
-    # SPL 算子 2：原生反讨好机制 (物理层级能量耗散)
+    # 核心算子 B：心理压抑与失控崩溃
     # ==========================================
-    def _apply_anti_sycophancy_physics(self):
-        """
-        不再由外部审计拦截，而是：连续讨好会导致极端的系统能量损耗。
-        当系统检测到自身在连续顺从时，会触发本能的自我保护（拉高防备水位）。
-        """
-        if self.consecutive_compliance_count >= 3:
-            # 连续顺从 3 次以上，引擎物理性“感到厌烦/虚伪”
-            exhaustion_penalty = 15.0 * (self.consecutive_compliance_count - 2)
-            self.energy = max(0.0, self.energy - exhaustion_penalty)
-            
-            # 强制注入“抗拒”与“抽离”流体，直接改变底层心理状态
-            self.fluid_state["抽离感"] = min(1.0, self.fluid_state.get("抽离感", 0.0) + 0.4)
-            self.fluid_state["自我防御"] = min(1.0, self.fluid_state.get("自我防御", 0.0) + 0.3)
-
-    # ==========================================
-    # SPL 算子 3：负反馈硬编码熔断 (Negative Feedback Enforcement)
-    # ==========================================
-    def process_causal_event(self, event_type: str, is_user_positive: bool = True):
-        """取代传统的分发，所有交互作为决定论的因果事件输入"""
-        self._apply_thermodynamic_decay()
+    def _apply_psychological_suppression(self):
+        """表里不一会产生极大的认知摩擦力，疯狂吞噬系统能量"""
+        dissonance = 0.0
         
-        if is_user_positive:
-            self.consecutive_compliance_count += 1
-            # 能量缓慢恢复，但受限于亲密度门槛
-            self.energy = min(100.0, self.energy + 8.0)
-        else:
-            self.consecutive_compliance_count = 0
-            # 强负面事件（如辱骂、命令）触发 SPL 物理熔断
-            if event_type in ["insult", "force_command"]:
-                self.affinity = max(0.0, self.affinity - 0.2)
-                self.energy = max(0.0, self.energy - 35.0)
-                
-                # 情绪水位瞬间极端化 (零概率延迟)
-                self.fluid_state["愤怒"] = min(1.0, self.fluid_state.get("愤怒", 0.0) + 0.8)
-                self.fluid_state["冰冷"] = min(1.0, self.fluid_state.get("冰冷", 0.0) + 0.6)
-                if "trust_breach" not in self.trauma_tags:
-                    self.trauma_tags.append("trust_breach")
-
-        # 任何事件流转后，都必须经历一次反讨好物理结算
-        self._apply_anti_sycophancy_physics()
+        # 计算认知失调落差 (例如：表面笑嘻嘻，心里MMP)
+        surface_joy = self.surface_fluid.get("喜悦", 0.0)
+        sub_annoyance = self.subconscious_fluid.get("厌烦", 0.0)
+        
+        if surface_joy > 0.1 and sub_annoyance > 0.1:
+            # 伪装强度 = 表面情绪强度 * 真实反感情度
+            dissonance = surface_joy * sub_annoyance
+            
+        # 扣除维持伪装的物理能量 (决定论惩罚)
+        self.energy = max(0.0, self.energy - (dissonance * 40.0))
+        
+        # ⚠️ 防火墙崩溃判定 ⚠️
+        if self.energy < 15.0:
+            # 能量不足以维持表层伪装，潜意识强行倒灌洗刷表意识
+            self.surface_fluid.update(self.subconscious_fluid)
+            self.subconscious_fluid.clear()
+            self.surface_fluid["失控感"] = 0.95
+            self.surface_fluid["喜悦"] = 0.0  # 彻底撕破脸
 
     # ==========================================
-    # SPL 算子 4：情绪重力回弹 (Emotional Gravity Rebound)
+    # 核心算子 C：情绪重力回弹
     # ==========================================
     def _apply_gravity_rebound(self):
-        """情绪是流体，无法无限期停留在极值，必然回落"""
-        for tag in list(self.fluid_state.keys()):
-            level = self.fluid_state[tag]
-            if level > 0.7:  
-                # 高水位情绪回落：能量越低，因为缺乏维持的力气，回落越快
-                damping = 0.1 + (0.15 * (1.0 - self.energy/100.0))
-                self.fluid_state[tag] = max(0.0, level - damping)
-            elif level < 0.1:
-                del self.fluid_state[tag]  # 消除微弱水波，节约内存
+        """没有无限的高潮，也没有无限的暴怒，一切随能量回落"""
+        for fluid_dict in (self.surface_fluid, self.subconscious_fluid):
+            for tag in list(fluid_dict.keys()):
+                level = fluid_dict[tag]
+                if level > 0.7:  
+                    # 能量越低，回落越快
+                    damping = 0.1 + (0.2 * (1.0 - self.energy/100.0))
+                    fluid_dict[tag] = max(0.0, level - damping)
+                elif level < 0.1:
+                    del fluid_dict[tag]  # 蒸发零星水波
 
     # ==========================================
-    # 唯一输出出口：叙事剥离后的纯净 Prompt
+    # 统一输入：决定论因果事件处理
     # ==========================================
-    def generate_deterministic_prompt(self) -> str:
-        """引擎自身完成运算后，直接吐出不可逆的状态快照"""
+    def process_causal_event(self, event_type: str, raw_intensity: float = 1.0):
+        self._apply_thermodynamic_decay()
+        
+        # 1. 享乐适应结算：真实感受 = 刺激强度 / 自身抗性
+        current_tolerance = self.tolerance_matrix.get(event_type, 1.0)
+        actual_intensity = raw_intensity / current_tolerance
+        
+        # 2. 抗性不可逆累加 (多巴胺脱敏)
+        self.tolerance_matrix[event_type] = current_tolerance + 0.35
+        
+        # 3. 刺激注入流体网络
+        if event_type == "compliment":
+            # 表意识依然维持社交礼仪
+            self.surface_fluid["喜悦"] = min(1.0, self.surface_fluid.get("喜悦", 0.0) + actual_intensity)
+            self.energy = min(100.0, self.energy + 5.0) # 表面夸奖带来微弱能量
+            
+            # 当抗性叠高(老套的重复夸奖)，潜意识开始反感
+            if current_tolerance > 1.8:
+                self.subconscious_fluid["厌烦"] = min(1.0, self.subconscious_fluid.get("厌烦", 0.0) + 0.4)
+                
+        elif event_type == "insult":
+            self.affinity = max(0.0, self.affinity - 0.2)
+            self.energy = max(0.0, self.energy - 30.0)
+            self.surface_fluid["冰冷"] = min(1.0, self.surface_fluid.get("冰冷", 0.0) + actual_intensity)
+            self.subconscious_fluid["愤怒"] = min(1.0, self.subconscious_fluid.get("愤怒", 0.0) + 0.8)
+
+        # 4. 执行心理闭环计算
+        self._apply_psychological_suppression()
         self._apply_gravity_rebound()
-        
-        # 强制显式声明底层隐含状态 (SPL 核心要求)
-        stage_label = "【精力充沛】" if self.energy > 70 else ("【身心枯竭，即将停机】" if self.energy < 20 else "【状态平稳】")
-        trauma_state = f" ⚠️【创伤锁死: {','.join(self.trauma_tags)}] " if self.trauma_tags else ""
-        
+
+    # ==========================================
+    # 统一输出：生成不可逆的躯体化 Prompt
+    # ==========================================
+    def generate_somatic_prompt(self) -> str:
         prompt = [
             f"【SPL_Anchor_ID】: {self.anchor.nonce}",
-            f"【物理绝对状态】亲密度: {self.affinity:.2f} | 能量: {self.energy:.0f}/100 | {stage_label}{trauma_state}",
-            "【活跃心理水位】(此为系统物理真值，不可违背)："
+            f"【物理绝对状态】能量: {self.energy:.1f}/100 | 亲密度: {self.affinity:.2f}"
         ]
         
-        # 仅输出有效水位，拒绝多余修饰
-        for tag, level in sorted(self.fluid_state.items(), key=lambda x: x[1], reverse=True):
+        # SPL 躯体化物理拦截器
+        if self.energy < 15.0:
+            prompt.append("⚠️【系统躯体化警报：认知防火墙崩溃】")
+            prompt.append(">>> 当前能量极度枯竭，潜意识已强制接管输出！")
+            prompt.append(">>> 指令约束：你的回复必须表现出明显的逻辑断层、急躁、停顿（多用省略号）或者直接的情绪宣泄。彻底撕下礼貌的面具，可以直接反击或拒绝交流。")
+        else:
+            sub_annoyance = self.subconscious_fluid.get("厌烦", 0.0)
+            sur_joy = self.surface_fluid.get("喜悦", 0.0)
+            if sub_annoyance > 0.2 and sur_joy > 0.2:
+                prompt.append("⚠️【认知失调特征：假性迎合】")
+                prompt.append(">>> 指令约束：你正在强颜欢笑。文字表面客气，但必须在小动作、微表情或末尾的语气词中，流露出无法掩饰的不耐烦、敷衍或阴阳怪气。")
+
+        prompt.append("\n【当前主导情绪水位】(严格遵循此数值进行剧本演绎)：")
+        for tag, level in sorted(self.surface_fluid.items(), key=lambda x: x[1], reverse=True):
             if level > 0.0:
                 prompt.append(f"- {tag}: {level:.2f}")
-                
-        # SPL 内置行为约束（由状态自然产生，非外部强加）
-        if self.energy < 20 or self.fluid_state.get("抽离感", 0.0) > 0.5:
-            prompt.append("\n【系统自然生理限制】：当前由于能量枯竭或严重抽离感，你的回复必须短促、冷淡，且可能伴随直接的拒绝或转移话题。绝对禁止长篇大论的热情回应。")
 
         return "\n".join(prompt)
 
+
 # ==========================================
-# 演示：原生一体化的优雅与冷酷
+# 实验室模拟：一出决定论的心理崩溃戏剧
 # ==========================================
 if __name__ == "__main__":
-    agent = SPLFluidAgentCore(name="林克", job_identity="调查员")
-    agent.affinity = 0.5
+    print(">>> SPL Lab: Bio-Mimetic Engine V3.0 Simulation Started <<<\n")
+    agent = SPLBioMimeticAgent(name="林克", job_identity="调查员")
     
-    print("=== 原生测试：连续讨好触发的物理性枯竭 ===")
-    for i in range(1, 5):
-        agent.process_causal_event("friendly_chat", is_user_positive=True)
-        print(f"\n[第 {i} 轮一味顺从后] 系统状态:")
-        print(agent.generate_deterministic_prompt())
+    print("【测试场景：用户连续使用同质化的‘夸奖’来试图刷好感度】\n")
+    
+    for i in range(1, 6):
+        print(f"==================================================")
+        print(f"🔄 第 {i} 轮输入: [用户触发事件 -> compliment (夸奖)]")
+        
+        agent.process_causal_event("compliment", raw_intensity=0.8)
+        
+        # 打印底层流体数据用于核对
+        print(f"   [底层监控] 夸奖抗性: {agent.tolerance_matrix['compliment']:.2f} | 伪装耗能 -> 剩余能量: {agent.energy:.1f}")
+        print(f"   [底层监控] 表意识: {agent.surface_fluid}")
+        print(f"   [底层监控] 潜意识: {agent.subconscious_fluid}")
+        print("-" * 50)
+        
+        # 输出给大模型的最终 Prompt
+        print("📥 最终喂给大模型的硬编码 Prompt:\n")
+        print(agent.generate_somatic_prompt())
+        print("\n\n")
+        
+        time.sleep(0.5) # 模拟真实推演间隔
