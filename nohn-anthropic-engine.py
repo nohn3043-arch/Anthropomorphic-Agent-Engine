@@ -1,35 +1,25 @@
 import time
 import math
-import uuid
 from dataclasses import dataclass, field
 from typing import Dict, Any, List
 
 
 @dataclass
-class SPLPsychicFieldV5_3:
+class SPLPsychicFieldV5_5:
     """
-    V5.3 核心升级：
-    = 引入「解释记忆塑形机制」
-    = 人格开始具有“历史偏好结构”
+    V5.5 核心升级：
+    = 人格函数化（Personality = Function Space）
+    = 状态只是函数的输出
     """
 
     # =========================
-    # 基础状态
+    # 状态场（仍然存在，但降级为“输出层”）
     # =========================
     state: Dict[str, float] = field(default_factory=lambda: {
         "energy": 100.0,
         "affinity": 0.5,
         "trust": 0.5,
         "threat": 0.2,
-        "tension": 0.2,
-        "coherence": 0.6
-    })
-
-    relax_target: Dict[str, float] = field(default_factory=lambda: {
-        "energy": 100.0,
-        "affinity": 0.5,
-        "trust": 0.5,
-        "threat": 0.1,
         "tension": 0.2,
         "coherence": 0.6
     })
@@ -43,32 +33,35 @@ class SPLPsychicFieldV5_3:
     })
 
     # =========================
-    # 创伤场
+    # 创伤场（扰动函数）
     # =========================
     trauma_field: Dict[str, float] = field(default_factory=dict)
 
     # =========================
-    # 🧠 解释偏好记忆（V5.3核心）
+    # 🧠 人格函数参数（核心）
     # =========================
-    interpretation_memory: Dict[str, float] = field(default_factory=lambda: {
+    personality_curves: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        "trust":   {"k": 2.0, "bias": 0.0, "threshold": 0.5},
+        "threat":  {"k": 3.0, "bias": 0.1, "threshold": 0.3},
+        "affinity":{"k": 1.5, "bias": 0.0, "threshold": 0.4},
+        "tension": {"k": 2.5, "bias": 0.1, "threshold": 0.5},
+    })
+
+    # =========================
+    # 解释记忆（人格偏置来源）
+    # =========================
+    interpretation_bias: Dict[str, float] = field(default_factory=lambda: {
         "benevolent": 0.25,
         "threat": 0.25,
         "defensive": 0.25,
         "neutral": 0.25
     })
 
-    # =========================
-    # 事件记忆
-    # =========================
     memory: List[Dict[str, Any]] = field(default_factory=list)
 
-    # =========================
-    # 参数
-    # =========================
     inertia: float = 0.82
     plasticity: float = 0.1
-    memory_plasticity: float = 0.05   # ⭐解释学习率（核心新增）
-    noise: float = 0.015
+    memory_learning_rate: float = 0.04
 
     last_time: float = field(default_factory=time.time)
 
@@ -79,33 +72,21 @@ class SPLPsychicFieldV5_3:
         dt = delta_time if delta_time is not None else self._dt()
         dt = min(dt, 5.0)
 
-        # 1. 松弛
         self._relax(dt)
-
-        # 2. 能量恢复
-        self._recover(dt)
-
-        # 3. 创伤衰减
+        self._recover_energy(dt)
         self._decay_trauma(dt)
-
-        # 4. 世界更新
         self._update_world(event, intensity)
 
-        # 5. 🧠 解释竞争（加入历史偏好）
-        interpretation = self._interpret(event, intensity)
+        # 🧠 解释竞争
+        interp = self._interpret(event, intensity)
 
-        # 6. 状态更新
-        self._apply_interpretation(interpretation, dt)
+        # 🧠 核心：函数驱动状态更新
+        self._apply_nonlinear_dynamics(interp, event, intensity, dt)
 
-        # 7. ⭐解释记忆更新（人格形成关键）
-        self._update_interpretation_memory(interpretation, event, intensity)
+        # 🧠 人格函数学习（V5.5核心）
+        self._update_personality_curves(interp, event, intensity)
 
-        # 8. 创伤形成
-        self._maybe_trauma(event, intensity)
-
-        # 9. 记忆记录
         self._store(event, intensity)
-
         self.last_time = time.time()
 
     # ==================================================
@@ -119,25 +100,25 @@ class SPLPsychicFieldV5_3:
     # ==================================================
     def _relax(self, dt):
         for k in self.state:
-            target = self.relax_target[k]
+            target = 0.5
+            if k == "energy":
+                target = 100.0
+
             self.state[k] += (target - self.state[k]) * (1 - self.inertia) * dt
             self.state[k] = self._clip(k, self.state[k])
 
     # ==================================================
     # 能量恢复
     # ==================================================
-    def _recover(self, dt):
-        self.state["energy"] = min(
-            100.0,
-            self.state["energy"] + 0.4 * dt
-        )
+    def _recover_energy(self, dt):
+        self.state["energy"] = min(100.0, self.state["energy"] + 0.35 * dt)
 
     # ==================================================
     # 创伤衰减
     # ==================================================
     def _decay_trauma(self, dt):
         for k in list(self.trauma_field.keys()):
-            self.trauma_field[k] -= 0.08 * dt
+            self.trauma_field[k] -= 0.06 * dt
             if self.trauma_field[k] <= 0:
                 del self.trauma_field[k]
 
@@ -146,7 +127,7 @@ class SPLPsychicFieldV5_3:
     # ==================================================
     def _update_world(self, event, intensity):
         if event == "betrayal":
-            self.world_model["trust_world"] -= 0.08 * intensity
+            self.world_model["trust_world"] -= 0.07 * intensity
         if event == "help":
             self.world_model["trust_world"] += 0.04 * intensity
 
@@ -154,86 +135,87 @@ class SPLPsychicFieldV5_3:
             self.world_model[k] = self._clip01(self.world_model[k])
 
     # ==================================================
-    # 🧠 解释竞争（加入人格偏好）
+    # 🧠 解释竞争（简化版）
     # ==================================================
     def _interpret(self, event, intensity):
+        trust_w = self.world_model["trust_world"]
+        trauma = sum(self.trauma_field.values())
 
-        trust_world = self.world_model["trust_world"]
-        trauma_bias = sum(self.trauma_field.values())
-
-        # ⭐引入“人格偏好修正”
-        pref = self.interpretation_memory
-
-        candidates = {
-            "benevolent": trust_world * intensity * pref["benevolent"],
-            "threat": (1 - trust_world) * intensity * pref["threat"] + trauma_bias * 0.3,
-            "neutral": 0.5 * (1 - intensity) * pref["neutral"],
-            "defensive": trauma_bias * intensity * pref["defensive"]
+        raw = {
+            "benevolent": trust_w * intensity,
+            "threat": (1 - trust_w) * intensity + trauma * 0.3,
+            "defensive": trauma * intensity,
+            "neutral": 0.5 * (1 - intensity)
         }
 
-        return self._softmax(candidates)
+        return self._softmax(raw)
 
     # ==================================================
-    # 状态更新
+    # 🧠 非线性人格动力系统（核心）
     # ==================================================
-    def _apply_interpretation(self, interp, dt):
+    def _apply_nonlinear_dynamics(self, interp, event, intensity, dt):
 
-        w_b = interp["benevolent"]
-        w_t = interp["threat"]
-        w_d = interp["defensive"]
+        def curve(x, params):
+            k = params["k"]
+            bias = params["bias"]
+            threshold = params["threshold"]
 
-        self.state["trust"] += (w_b * 0.1 - w_t * 0.15) * dt
-        self.state["affinity"] += (w_b * 0.08 - w_t * 0.05) * dt
-        self.state["threat"] += (w_t * 0.1 + w_d * 0.12) * dt
-        self.state["tension"] += (w_t * 0.1 + w_d * 0.08) * dt
-        self.state["coherence"] -= w_t * 0.05 * dt
+            # 🧠 非线性核心函数（人格曲率）
+            y = math.tanh(k * (x + bias))
 
-        # energy消耗 = 解释冲突
-        conflict = self._entropy(interp)
-        self.state["energy"] -= conflict * 2.0 * dt
+            # 🧠 阈值机制（创伤触发）
+            if x < threshold:
+                y *= 0.3
 
+            return y
+
+        # trust
+        self.state["trust"] += curve(interp["benevolent"], self.personality_curves["trust"]) * dt
+        self.state["trust"] -= curve(interp["threat"], self.personality_curves["trust"]) * dt
+
+        # threat
+        self.state["threat"] += curve(interp["threat"], self.personality_curves["threat"]) * dt
+
+        # affinity
+        self.state["affinity"] += curve(interp["benevolent"], self.personality_curves["affinity"]) * dt
+
+        # tension
+        self.state["tension"] += curve(interp["threat"], self.personality_curves["tension"]) * dt
+
+        # energy cost = conflict curvature
+        conflict = sum([abs(v - 0.25) for v in interp.values()])
+        self.state["energy"] -= conflict * 1.5 * dt
+
+        # clip
         for k in self.state:
             self.state[k] = self._clip(k, self.state[k])
 
     # ==================================================
-    # 🧠 V5.3核心：解释记忆更新（人格形成机制）
+    # 🧠 人格函数学习（核心升级点）
     # ==================================================
-    def _update_interpretation_memory(self, interp, event, intensity):
+    def _update_personality_curves(self, interp, event, intensity):
 
-        # 找最大解释
         winner = max(interp.items(), key=lambda x: x[1])[0]
 
-        # ⭐赢家强化（赫布学习）
-        self.interpretation_memory[winner] += self.memory_plasticity * intensity
+        # winner强化
+        self.interpretation_bias[winner] += self.memory_learning_rate * intensity
 
-        # ⭐非赢家衰减
-        for k in self.interpretation_memory:
+        # loser衰减
+        for k in self.interpretation_bias:
             if k != winner:
-                self.interpretation_memory[k] -= self.memory_plasticity * 0.3 * intensity
+                self.interpretation_bias[k] -= self.memory_learning_rate * 0.2 * intensity
 
         # clip
-        for k in self.interpretation_memory:
-            self.interpretation_memory[k] = self._clip01(self.interpretation_memory[k])
+        for k in self.interpretation_bias:
+            self.interpretation_bias[k] = self._clip01(self.interpretation_bias[k])
 
     # ==================================================
     # 创伤形成
     # ==================================================
-    def _maybe_trauma(self, event, intensity):
-        if intensity < 0.7:
-            return
-        if event in ["betrayal", "insult"]:
-            self.trauma_field[event] = min(
-                1.0,
-                self.trauma_field.get(event, 0.0) + intensity * 0.25
-            )
-
-    # ==================================================
-    # 记忆
-    # ==================================================
     def _store(self, event, intensity):
         self.memory.append({
-            "event": event,
-            "intensity": intensity,
+            "e": event,
+            "i": intensity,
             "t": time.time()
         })
         self.memory = self.memory[-100:]
@@ -246,9 +228,6 @@ class SPLPsychicFieldV5_3:
         exps = {k: math.exp(v - m) for k, v in d.items()}
         s = sum(exps.values())
         return {k: v / s for k, v in exps.items()}
-
-    def _entropy(self, d):
-        return -sum(p * math.log(p + 1e-9) for p in d.values())
 
     def _clip(self, k, v):
         if k == "energy":
@@ -263,16 +242,18 @@ class SPLPsychicFieldV5_3:
     # ==================================================
     def generate_prompt(self):
         return "\n".join([
-            "【SPL V5.3 心理场】",
+            "【SPL V5.5 非线性人格系统】",
             f"energy={self.state['energy']:.2f}",
             f"trust={self.state['trust']:.2f}",
             f"affinity={self.state['affinity']:.2f}",
             f"threat={self.state['threat']:.2f}",
             f"tension={self.state['tension']:.2f}",
-            f"coherence={self.state['coherence']:.2f}",
             "",
-            "【解释偏好（人格结构核）】",
-            str(self.interpretation_memory),
+            "【人格函数参数】",
+            str(self.personality_curves),
+            "",
+            "【解释偏好】",
+            str(self.interpretation_bias),
             "",
             "【创伤】",
             str(self.trauma_field)
