@@ -111,6 +111,18 @@ class SPLPureCoreV7_3:
     psy_dilation: float = 1.0
     time_compress_base: float = 0.0
 
+    # ---------- 兴奋/唤醒（元参数） ----------
+    # 兴奋不是情绪，是情绪的"音量旋钮"——控制多快、多猛、多上头。
+    # 高兴奋 → 粘滞度压低、感知增益放大、情绪映射更极端。
+    # 低兴奋 → 情绪平滑；长时间过低 → 触发无聊（张力/疏离自增）。
+    excitation: float = 0.3                          # 当前唤醒水平 [0,1]
+    EXCITATION_BASELINE: float = 0.3                 # 静息基线
+    EXCITATION_NOVELTY_GAIN: float = 0.12            # 普适事件唤醒增量
+    EXCITATION_SALIENCE_BOOST: float = 0.35          # 高强度事件额外唤醒
+    EXCITATION_DECAY: float = 0.025                  # 自然衰减率（/s）
+    EXCITATION_BOREDOM_THRESHOLD: float = 0.1        # 低于此 → 无聊
+    EXCITATION_MAX: float = 1.0
+
     # ---------- 能量 / 疲劳 ----------
     ENERGY_RECOVER: float = 1.5
     ENERGY_EVENT_COST: float = 1.5
@@ -144,6 +156,9 @@ class SPLPureCoreV7_3:
     # ==================================================================
     def process_vector(self, vector: Dict[str, float], raw_intensity: float = 1.0):
         self._advance_time()
+
+        # 兴奋先于认知增益更新——任何新刺激先"点燃"唤醒度，再被认知增益加工
+        self._excitation_on_event(vector, raw_intensity)
 
         perceived = self._core_appraisal_gain(vector)
         self.last_perceived = dict(perceived)
@@ -202,6 +217,7 @@ class SPLPureCoreV7_3:
             "fluid": dict(self.fluid),
             "energy": self.energy,
             "fatigue": self.fatigue,
+            "excitation": self.excitation,
             "max_trust": self.max_trust,
             "suppression_load": self.suppression_load,
             "latent_pressure": self.latent_pressure,
@@ -226,6 +242,8 @@ class SPLPureCoreV7_3:
         self._fluid_dynamics(dt=self._psychological_dt_for(dt))
         self._forget_over(dt)
         self._energy_idle(dt)
+        self._excitation_decay(dt)
+        self._check_boredom(dt)
         self.suppression_load = max(0.0, self.suppression_load - self.SUPPRESSION_DRAIN * dt)
         self.latent_pressure = max(0.0, self.latent_pressure - self.LATENT_DRAIN * dt)
         self._heal_traumas(dt)
@@ -250,8 +268,11 @@ class SPLPureCoreV7_3:
         fear = self.fluid["恐惧"]
         trust = min(self.fluid["信任"], self.max_trust)
 
+        # 唤醒乘数：高兴奋 → 所有输入信号被放大（"一惊一乍"）
+        arousal_mult = 1.0 + self.excitation * 0.6
+
         for k in out:
-            out[k] *= (0.4 + 0.6 * energy_factor)
+            out[k] *= (0.4 + 0.6 * energy_factor) * arousal_mult
         if out.get("threat", 0.0) > 0:
             out["threat"] *= 1.0 + 1.5 * tension * fear
         if "threat" in self.trauma_state and out.get("threat", 0.0) > 0:
@@ -417,6 +438,14 @@ class SPLPureCoreV7_3:
         for k in self.fluid:
             self.fluid[k] = max(0.0, min(1.0, self.fluid[k]))
 
+        # 兴奋调制：高兴奋时情绪映射更极端——喜悦更浓，愤怒/恐惧/张力更烈
+        if self.excitation > 0.5:
+            extra = (self.excitation - 0.5) * 0.4
+            self.fluid["喜悦"] = min(1.0, self.fluid["喜悦"] + extra * max(0.0, b))
+            self.fluid["愤怒"] = min(1.0, self.fluid["愤怒"] + extra * max(0.0, -b))
+            self.fluid["恐惧"] = min(1.0, self.fluid["恐惧"] + extra * max(0.0, t))
+            self.fluid["张力"] = min(1.0, self.fluid["张力"] + extra * max(0.0, t, -b) * 0.5)
+
     # ==================================================================
     # 7. 压抑动力学
     # ==================================================================
@@ -471,6 +500,8 @@ class SPLPureCoreV7_3:
         self.dynamic_viscosity = (base
                                   + self.VISC_TENSION_K * self.fluid["张力"]
                                   + self.VISC_FATIGUE_K * self.fatigue)
+        # 高兴奋 → 压低粘滞（情绪来得更快更猛）
+        self.dynamic_viscosity -= self.excitation * 0.08
         self.dynamic_viscosity = max(0.02, min(1.5, self.dynamic_viscosity))
         # 心理时间：高压缩 → 主观时间慢（难受时度日如年）
         self.psy_dilation = 1.0 + self.time_compress_base * 2.0
@@ -585,6 +616,32 @@ class SPLPureCoreV7_3:
                 tr["age"] = age
                 survivors.append(tr)
         self.memory_traces = survivors
+
+    # ==================================================================
+    # 13. 兴奋/唤醒系统
+    # ==================================================================
+    def _excitation_on_event(self, v: Dict[str, float], raw_intensity: float):
+        """任何事件推高唤醒——真实的人对新刺激天生敏感。"""
+        novelty = raw_intensity * self.EXCITATION_NOVELTY_GAIN
+        # 高强度事件额外激活
+        if abs(v.get("threat", 0.0)) > 0.5 or abs(v.get("belonging", 0.0)) > 0.5:
+            novelty += raw_intensity * self.EXCITATION_SALIENCE_BOOST
+        self.excitation = min(self.EXCITATION_MAX, self.excitation + novelty)
+
+    def _excitation_decay(self, dt: float):
+        """无事件时指数回归基线——没人能一直嗨。"""
+        if self.excitation > self.EXCITATION_BASELINE:
+            self.excitation += (self.EXCITATION_BASELINE - self.excitation) * \
+                              (1.0 - math.exp(-self.EXCITATION_DECAY * dt))
+            if abs(self.excitation - self.EXCITATION_BASELINE) < 0.005:
+                self.excitation = self.EXCITATION_BASELINE
+
+    def _check_boredom(self, dt: float):
+        """长时间低唤醒 → 内心躁动。真人独处太久会自己找事。"""
+        if self.excitation < self.EXCITATION_BOREDOM_THRESHOLD:
+            # 微量注入张力和疏离，模拟"待不住了"
+            self.fluid["张力"] = min(1.0, self.fluid["张力"] + 0.003 * dt / 60)
+            self.fluid["疏离"] = min(1.0, self.fluid["疏离"] + 0.002 * dt / 60)
 
     # 兼容旧名
     def _apply_forgetting_curve(self):
