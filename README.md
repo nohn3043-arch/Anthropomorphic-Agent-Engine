@@ -104,17 +104,19 @@ Version 7.3 — stable, feature‑complete for narrative‑driven applications.
 
 ---
 
-## 授权与许可（Licensing & Authorization）
+## Licensing & Authorization
 
-本仓库为 **Anthropomorphic Agent Engine** 的技术展示仓库。版权所有 © 2026 Nohn AI Technology，保留一切权利。
+This repository is a technical showcase for the **Anthropomorphic Agent Engine**. Copyright © 2026 Shanghai Linming Junhua Technology Co., Ltd. and NOHN AI TECHNOLOGY PTE. LTD. All rights reserved.
 
-| 使用主体 | 用途 | 授权要求 |
+| User | Purpose | License Requirement |
 |---|---|---|
-| 个人（自然人） | 非商业学术研究 / 学习 / 个人实验 | **免费**，须遵守 LICENSE 中的"个人研究免费许可"限制 |
-| 政府机构 / 事业单位 / 企业 | 任何用途（含内部部署、产品研发、服务提供） | **须事先取得书面付费授权** |
+| Individual (natural person) | Non-commercial academic research / study / personal experimentation | **Free** under the "Free Individual Research License" in [LICENSE](./LICENSE) |
+| Government agency / public institution / enterprise | Any purpose (incl. internal deployment, product development, service provision) | **Requires prior written paid authorization** |
 
-- **个人研究者**：可依据 [LICENSE](./LICENSE) 免费用于非商业研究，但不得用于任何商业目的，亦不得为任何企业或政府组织提供服务。
-- **政府 / 企业使用者**：在签署《商业授权协议》并付费前，不得复制、部署、运行、集成或分发本作品。
-- **申请授权**：请联系 ai@nohnlins.com，说明使用主体性质、拟用场景与规模。
+- **Individual researchers** may use the Work free of charge for non-commercial research under [LICENSE](./LICENSE), but not for any commercial purpose, nor to provide services to any enterprise or government organization.
+- **Government / enterprise users** may not copy, deploy, run, integrate, or distribute the Work before signing a Commercial Authorization Agreement and paying the agreed fee.
+- **Apply for authorization**:
+  - International / Global: [ai@nohnlins.com](mailto:ai@nohnlins.com)
+  - China: [ai@tx.nohnlins.com](mailto:ai@tx.nohnlins.com)
 
-完整条款见本仓库 [LICENSE](./LICENSE) 文件。
+The licensor, governing law, and dispute resolution are determined by the user's location as set out in [LICENSE](./LICENSE): users within the PRC → Shanghai Linming Junhua Technology Co., Ltd. (laws of the PRC); users outside the PRC → NOHN AI TECHNOLOGY PTE. LTD. (laws of Singapore, SIAC arbitration).
