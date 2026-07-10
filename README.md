@@ -103,3 +103,18 @@ Status
 Version 7.3 — stable, feature‑complete for narrative‑driven applications.
 
 ---
+
+## 授权与许可（Licensing & Authorization）
+
+本仓库为 **Anthropomorphic Agent Engine** 的技术展示仓库。版权所有 © 2026 Nohn AI Technology，保留一切权利。
+
+| 使用主体 | 用途 | 授权要求 |
+|---|---|---|
+| 个人（自然人） | 非商业学术研究 / 学习 / 个人实验 | **免费**，须遵守 LICENSE 中的"个人研究免费许可"限制 |
+| 政府机构 / 事业单位 / 企业 | 任何用途（含内部部署、产品研发、服务提供） | **须事先取得书面付费授权** |
+
+- **个人研究者**：可依据 [LICENSE](./LICENSE) 免费用于非商业研究，但不得用于任何商业目的，亦不得为任何企业或政府组织提供服务。
+- **政府 / 企业使用者**：在签署《商业授权协议》并付费前，不得复制、部署、运行、集成或分发本作品。
+- **申请授权**：请联系 ai@nohnlins.com，说明使用主体性质、拟用场景与规模。
+
+完整条款见本仓库 [LICENSE](./LICENSE) 文件。
