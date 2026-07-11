@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>SPL Pure Core · 拟人心理引擎</title>
+<title>SPL Pure Core · Anthropomorphic Psychology Engine</title>
 <style>
   :root{
     --bg-0:#0B1120;
@@ -148,12 +148,12 @@
   <div class="wrap">
     <div class="brand">SPL · Pure Core</div>
     <div class="nav-links">
-      <a href="#arch">架构</a>
-      <a href="#systems">心理子系统</a>
-      <a href="#demo">苏瑾演示</a>
-      <a href="#start">快速开始</a>
-      <a href="#eco">生态</a>
-      <a href="en/">English</a>
+      <a href="#arch">Architecture</a>
+      <a href="#systems">Subsystems</a>
+      <a href="#demo">Case Study</a>
+      <a href="#start">Quick Start</a>
+      <a href="#eco">Ecosystem</a>
+      <a href="../">中文</a>
     </div>
   </div>
 </nav>
@@ -163,20 +163,20 @@
   <div class="glow b"></div>
   <div class="glow c"></div>
   <div class="wrap">
-    <h1>一个<span class="grad">没有灵魂</span>的引擎，<br/>却拥有人类的<span class="grad">心理构造</span></h1>
-    <p class="sub">SPL Pure Core V8.0 —— 基于 SPL 审计引擎的标准拟人智能体模板。因果锚定消除 OOC 与记忆丢失，复现情绪惯性、创伤、自尊、睡眠加工与防御机制。</p>
+    <h1>An engine with <span class="grad">no soul</span>,<br/>yet a human <span class="grad">psychological architecture</span></h1>
+    <p class="sub">SPL Pure Core V8.0 — a standard anthropomorphic agent template built on the SPL audit engine. Causal anchoring eliminates OOC and memory loss, reproducing emotional inertia, trauma, self-esteem and sleep processing.</p>
     <div class="badges">
-      <span class="badge">8 维情绪流体</span>
-      <span class="badge">心境层 · 自尊</span>
-      <span class="badge">睡眠 / 梦境加工</span>
-      <span class="badge">预期系统</span>
-      <span class="badge">认知失调</span>
-      <span class="badge">防御机制层级</span>
-      <span class="badge">纯 Python · 零依赖</span>
+      <span class="badge">8-Dim Emotion Fluids</span>
+      <span class="badge">Mood · Self-Esteem</span>
+      <span class="badge">Sleep / Dream Processing</span>
+      <span class="badge">Anticipation</span>
+      <span class="badge">Cognitive Dissonance</span>
+      <span class="badge">Defense Mechanisms</span>
+      <span class="badge">Pure Python · Zero Deps</span>
     </div>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine">查看代码</a>
-      <a class="btn ghost" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine#readme">阅读文档</a>
+      <a class="btn primary" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine">View Code</a>
+      <a class="btn ghost" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine#readme">Read Docs</a>
     </div>
   </div>
 </header>
@@ -185,40 +185,40 @@
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-tag">Architecture</div>
-      <h2>三层结构：躯体 · 滤镜 · 自设</h2>
-      <p>核心引擎是"躯体"，提供通用的心理动力；映射器是"滤镜"，把事件翻译成内感受向量；feature 模块是企业/政府可自定义的人格模板。</p>
+      <h2>Three Layers: Body · Filter · Persona</h2>
+      <p>The core engine is the "body" providing universal psychological dynamics; the mapper is the "filter" translating events into interoceptive vectors; the feature modules are enterprise/government-customizable persona templates.</p>
     </div>
     <div class="arch reveal">
       <div class="arch-card">
-        <h3><span class="dot" style="background:var(--c-blue)"></span>核心引擎 Core</h3>
-        <p style="color:var(--text-dim);font-size:14px;">语义无关的心理动力学，所有人共有。</p>
+        <h3><span class="dot" style="background:var(--c-blue)"></span>Core Engine</h3>
+        <p style="color:var(--text-dim);font-size:14px;">Semantics-agnostic psychological dynamics shared by all humans.</p>
         <ul>
-          <li>情绪流体动力学</li>
-          <li>创伤节点与愈合</li>
-          <li>记忆重巩固 · 遗忘曲线</li>
-          <li>压抑-反弹 · 隐压雪崩</li>
-          <li>信任容量腐蚀</li>
-          <li>心境 / 自尊 / 睡眠债</li>
+          <li>Emotion fluid dynamics</li>
+          <li>Trauma nodes & healing</li>
+          <li>Memory reconsolidation · forgetting curve</li>
+          <li>Repression-rebound · latent avalanche</li>
+          <li>Trust-capacity corrosion</li>
+          <li>Mood / self-esteem / sleep debt</li>
         </ul>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-card">
-        <h3><span class="dot" style="background:var(--c-purple)"></span>映射器 Mapper</h3>
-        <p style="color:var(--text-dim);font-size:14px;">唯一注入"语义"的一层，决定角色灵魂。</p>
+        <h3><span class="dot" style="background:var(--c-purple)"></span>Mapper</h3>
+        <p style="color:var(--text-dim);font-size:14px;">The only layer that injects "semantics", deciding the soul of a character.</p>
         <ul>
-          <li>NarrativeMapper 通用</li>
-          <li>SujinMapper 苏瑾专属</li>
-          <li>价值观 / 身份权重</li>
-          <li>认知偏见调制</li>
-          <li>互斥情绪组</li>
-          <li>行为规则</li>
+          <li>NarrativeMapper generic</li>
+          <li>SujinMapper for Sujin</li>
+          <li>Values / identity weights</li>
+          <li>Cognitive bias modulation</li>
+          <li>Mutually exclusive emotions</li>
+          <li>Behavior rules</li>
         </ul>
       </div>
     </div>
     <div class="arch reveal" style="margin-top:18px;">
       <div class="arch-card" style="grid-column:1/-1;">
-        <h3><span class="dot" style="background:var(--c-cyan)"></span>自设模块 feature/（企业 / 政府模板）</h3>
-        <p style="color:var(--text-dim);font-size:14px;">WorldModel · BiasEngine · IdentityEngine · ValueEngine · GoalEngine —— 教组织如何为不同场景配置一个拟人 Agent。</p>
+        <h3><span class="dot" style="background:var(--c-cyan)"></span>feature/ modules (enterprise / government templates)</h3>
+        <p style="color:var(--text-dim);font-size:14px;">WorldModel · BiasEngine · IdentityEngine · ValueEngine · GoalEngine — how an organization configures an anthropomorphic agent for different scenarios.</p>
       </div>
     </div>
   </div>
@@ -228,51 +228,51 @@
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-tag">Psychological Subsystems</div>
-      <h2>V8.0 通用心理构成</h2>
-      <p>以下七项并非角色自设，而是所有人类共有的心理架构，已写入核心引擎。</p>
+      <h2>V8.0 Universal Psychology</h2>
+      <p>The following seven are not character self-settings but the psychological architecture shared by all humans, written into the core engine.</p>
     </div>
     <div class="grid">
       <div class="card reveal" style="--accent:var(--c-blue)">
         <div class="ico">🌊</div>
-        <h3>8 维情绪流体</h3>
-        <p>喜悦 · 愤怒 · 恐惧 · 信任 · 疏离 · 张力 · 愧疚 · 羞耻。各维以自适应粘滞度向动态目标松弛，构成瞬时情绪。</p>
-        <div class="tags"><span class="tag">动态粘滞</span><span class="tag">情绪反馈</span></div>
+        <h3>8-Dim Emotion Fluids</h3>
+        <p>Joy · Anger · Fear · Trust · Detachment · Tension · Guilt · Shame. Each dimension relaxes toward a dynamic target with adaptive viscosity, forming instantaneous emotion.</p>
+        <div class="tags"><span class="tag">Dynamic Viscosity</span><span class="tag">Emotion Feedback</span></div>
       </div>
       <div class="card reveal" style="--accent:var(--c-cyan)">
         <div class="ico">🌗</div>
-        <h3>心境层 Mood</h3>
-        <p>慢变量背景情绪（愉悦 / 紧张 / 精力），惯性极大（约 1 小时半衰期），持续调制认知评估的增益。</p>
-        <div class="tags"><span class="tag">慢变量</span><span class="tag">Russell 环状</span></div>
+        <h3>Mood Layer</h3>
+        <p>Slow-variable background emotion (Pleasure / Tension / Energy) with huge inertia (~1-hour half-life) continuously modulating the gain of cognitive appraisal.</p>
+        <div class="tags"><span class="tag">Slow Variable</span><span class="tag">Russell Circumplex</span></div>
       </div>
       <div class="card reveal" style="--accent:var(--c-purple)">
         <div class="ico">🪞</div>
-        <h3>自尊动态 Self-Esteem</h3>
-        <p>自尊 [0,1] 随事件缓慢修正；低自尊者把失败内归因、放大威胁感——决定"我值多少"的自我感知。</p>
-        <div class="tags"><span class="tag">归因偏差</span><span class="tag">Rosenberg</span></div>
+        <h3>Self-Esteem Dynamics</h3>
+        <p>Self-esteem [0,1] slowly revised by events; low self-esteem internalizes failure and amplifies threat — the self-perception of "how much I'm worth".</p>
+        <div class="tags"><span class="tag">Attribution Bias</span><span class="tag">Rosenberg</span></div>
       </div>
       <div class="card reveal" style="--accent:var(--c-green)">
         <div class="ico">🌙</div>
-        <h3>睡眠 / 梦境加工</h3>
-        <p>sleep(hours) 不仅恢复精力，更在"梦境"中衰减情绪电荷、实现恐惧消退——真正的"睡一觉就好"。</p>
-        <div class="tags"><span class="tag">REM 加工</span><span class="tag">睡眠债</span></div>
+        <h3>Sleep / Dream Processing</h3>
+        <p>sleep(hours) not only restores energy but also decays emotional charge in "dreams" and achieves fear extinction — a real "sleep it off".</p>
+        <div class="tags"><span class="tag">REM Processing</span><span class="tag">Sleep Debt</span></div>
       </div>
       <div class="card reveal" style="--accent:var(--c-amber)">
         <div class="ico">🔭</div>
-        <h3>预期系统 Anticipation</h3>
-        <p>expect() 设定对未来的积极/威胁预期；事件兑现产生惊喜，落空产生失望——让 Agent 为未来而感受。</p>
-        <div class="tags"><span class="tag">希望</span><span class="tag">焦虑</span><span class="tag">失望</span></div>
+        <h3>Anticipation</h3>
+        <p>expect() sets positive/threat expectations about the future; fulfillment brings surprise, miss brings disappointment — letting the agent feel for the future.</p>
+        <div class="tags"><span class="tag">Hope</span><span class="tag">Anxiety</span><span class="tag">Disappointment</span></div>
       </div>
       <div class="card reveal" style="--accent:var(--c-red)">
         <div class="ico">⚖️</div>
-        <h3>认知失调 Dissonance</h3>
-        <p>信念与行为冲突时产生失调张力，超过阈值后自动通过"合理化"消解——Festinger 经典的自我辩护引擎。</p>
-        <div class="tags"><span class="tag">合理化</span><span class="tag">Festinger</span></div>
+        <h3>Cognitive Dissonance</h3>
+        <p>When belief conflicts with behavior, dissonance tension arises; beyond a threshold it auto-resolves via "rationalization" — Festinger's classic self-justification engine.</p>
+        <div class="tags"><span class="tag">Rationalization</span><span class="tag">Festinger</span></div>
       </div>
       <div class="card reveal" style="--accent:var(--c-blue)">
         <div class="ico">🛡️</div>
-        <h3>防御机制层级</h3>
-        <p>否认 → 合理化 → 压抑，逐级递进。高压下先否认现实，失效则合理化，再失效则压抑入隐压池等待反弹。</p>
-        <div class="tags"><span class="tag">否认</span><span class="tag">置换</span><span class="tag">压抑</span></div>
+        <h3>Defense Mechanism Hierarchy</h3>
+        <p>Denial → Rationalization → Repression, escalating. Under high pressure deny reality first; if that fails, rationalize; if that fails, repress into the latent pool awaiting rebound.</p>
+        <div class="tags"><span class="tag">Denial</span><span class="tag">Displacement</span><span class="tag">Repression</span></div>
       </div>
     </div>
   </div>
@@ -282,24 +282,24 @@
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-tag">Case Study</div>
-      <h2>苏瑾 · 三阶段拟人剧情</h2>
-      <p>同一套核心引擎，换上 SujinMapper，即可演绎一个从低信任到共创、再到背叛后缓慢修复的人物弧光。</p>
+      <h2>Sujin · Three-Phase Anthropomorphic Arc</h2>
+      <p>The same core engine, swapped with SujinMapper, can play out an arc from low trust to co-creation, then slow repair after betrayal.</p>
     </div>
     <div class="timeline">
       <div class="tl-item reveal">
-        <div class="phase">PHASE 01 · 低信任严谨</div>
-        <h4>戒备中的专业</h4>
-        <p>信任容量低，对批评敏感、对夸奖保留。预期落空会放大负面情绪，自尊在反复试探中轻微动摇。</p>
+        <div class="phase">PHASE 01 · Low-Trust Rigor</div>
+        <h4>Professionalism in Guardedness</h4>
+        <p>Low trust capacity, sensitive to criticism, reserved about praise. Unmet expectations amplify negative emotion; self-esteem wavers slightly through repeated probing.</p>
       </div>
       <div class="tl-item p2 reveal">
-        <div class="phase">PHASE 02 · 高信任共创</div>
-        <h4>默契与心流</h4>
-        <p>经过睡眠的梦境加工与预期兑现，信任上升、心境转暖、自尊达到高位，进入高效共创状态。</p>
+        <div class="phase">PHASE 02 · High-Trust Co-creation</div>
+        <h4>Tacit Understanding & Flow</h4>
+        <p>After dream processing during sleep and expectation fulfillment, trust rises, mood warms, self-esteem peaks — entering efficient co-creation.</p>
       </div>
       <div class="tl-item p3 reveal">
-        <div class="phase">PHASE 03 · 背叛与修复</div>
-        <h4>羞耻、崩塌与缓慢愈合</h4>
-        <p>背叛触发羞耻维度与自尊崩塌，防御层级启动；认知失调在睡眠中逐步合理化，长期愈合但 max_trust 永久降低。</p>
+        <div class="phase">PHASE 03 · Betrayal & Repair</div>
+        <h4>Shame, Collapse & Slow Healing</h4>
+        <p>Betrayal triggers the shame dimension and self-esteem collapse; defense layers activate; cognitive dissonance gradually rationalizes during sleep — long-term healing but max_trust permanently lowered.</p>
       </div>
     </div>
   </div>
@@ -309,36 +309,36 @@
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-tag">Quick Start</div>
-      <h2>30 行跑起来</h2>
-      <p>纯 Python，零依赖。核心不认识任何事件名，所有语义由外部映射器注入。</p>
+      <h2>Running in 30 Lines</h2>
+      <p>Pure Python, zero dependencies. The core knows no event names; all semantics are injected by external mappers.</p>
     </div>
     <div class="code-wrap reveal">
 <div class="code"><span class="k">from</span> SPL_anthropic_engine <span class="k">import</span> <span class="f">SPLPureCoreV7_3</span>
 
-<span class="c"># 创建核心（类名 V7_3 为兼容命名，内部即 V8.0 通用心理架构）</span>
+<span class="c"># Build the core (class name V7_3 is a compatibility alias; internally it is the V8.0 universal psychology)</span>
 core = <span class="f">SPLPureCoreV7_3</span>(psychological_resilience=0.4)
 core.<span class="f">set_clock</span>(0.0)
 
-<span class="c"># 注入内感受向量（语义无关）：威胁 / 归属 / 自主 / 疲劳 / 羞耻触发</span>
+<span class="c"># Inject interoceptive vector (semantics-agnostic): threat / belonging / autonomy / fatigue / shame_trigger</span>
 core.<span class="f">process_vector</span>({<span class="s">"threat"</span>: 0.5, <span class="s">"belonging"</span>: -0.6}, intensity=1.0)
 
-<span class="c"># 设定对未来的预期，随后兑现 → 惊喜 / 落空 → 失望</span>
+<span class="c"># Set an expectation about the future, then fulfill it → surprise / miss → disappointment</span>
 core.<span class="f">expect</span>(<span class="s">"sign_contract"</span>, valence=0.6, confidence=0.7)
 
-<span class="c"># 睡眠：梦境加工情绪、消退恐惧、偿还睡眠债</span>
+<span class="c"># Sleep: dream-process emotion, extinguish fear, repay sleep debt</span>
 core.<span class="f">sleep</span>(hours=8)
 
-<span class="c"># 认知失调：信念冲突 → 张力 → 自动合理化消解</span>
+<span class="c"># Cognitive dissonance: belief conflict → tension → auto rationalization</span>
 core.<span class="f">induce_dissonance</span>(magnitude=0.5, belief_domain=<span class="s">"loyalty"</span>)
 
-<span class="c"># 读取完整心理快照</span>
+<span class="c"># Read the full psychological snapshot</span>
 snap = core.<span class="f">snapshot</span>()
 <span class="k">print</span>(snap[<span class="s">"fluid"</span>], snap[<span class="s">"mood"</span>], snap[<span class="s">"self_esteem"</span>])
 </div>
     </div>
     <div class="cta" style="margin-top:36px;">
-      <a class="btn primary" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/sujin-demo">运行 sujin-demo</a>
-      <a class="btn ghost" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/feature">查看自设模板</a>
+      <a class="btn primary" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/sujin-demo">Run sujin-demo</a>
+      <a class="btn ghost" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/feature">View Persona Templates</a>
     </div>
   </div>
 </section>
@@ -347,43 +347,43 @@ snap = core.<span class="f">snapshot</span>()
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-tag">Ecosystem</div>
-      <h2>SPL 生态 · 五个开源项目</h2>
-      <p>同一套因果锚定内核延展出的处理器、智能体、治理、叙事与虚拟世界引擎。</p>
+      <h2>SPL Ecosystem · Five Open-Source Projects</h2>
+      <p>Five open-source projects extended from the same causally-anchored core: processor, agent, governance, narrative and virtual-world engines.</p>
     </div>
     <div class="grid">
       <div class="card reveal" style="--accent:var(--c-blue)">
         <div class="ico">🧮</div>
-        <h3>SPL-G1 通用处理器</h3>
-        <p>面向大规模虚拟世界生态的精简异构通用处理器，兼顾高性能计算与低功耗日常调度。</p>
-        <div class="tags"><span class="tag">AI 芯片</span><span class="tag">RISC-V</span><span class="tag">异构计算</span></div>
+        <h3>SPL-G1 General-Purpose Processor</h3>
+        <p>A compact, heterogeneous general-purpose processor for large-scale virtual-world ecosystems, balancing high-performance compute with low-power daily scheduling.</p>
+        <div class="tags"><span class="tag">AI Chip</span><span class="tag">RISC-V</span><span class="tag">Heterogeneous Compute</span></div>
         <a class="card-link" href="https://gitee.com/sjiun/SPL-G1-General-purpose-processor">Gitee →</a>
       </div>
       <div class="card reveal" style="--accent:var(--c-cyan)">
         <div class="ico">🤖</div>
         <h3>Anthropomorphic-Agent-Engine</h3>
-        <p>基于 SPL 审计引擎的标准拟人智能体模板，因果锚定消除 OOC 与记忆丢失。</p>
-        <div class="tags"><span class="tag">智能体</span><span class="tag">数字人</span><span class="tag">AIGC</span></div>
+        <p>A standard anthropomorphic agent template built on the SPL audit engine; causal anchoring eliminates OOC and memory loss.</p>
+        <div class="tags"><span class="tag">Agent</span><span class="tag">Digital Human</span><span class="tag">AIGC</span></div>
         <a class="card-link" href="https://gitee.com/sjiun/Anthropomorphic-Agent-Engine">Gitee →</a>
       </div>
       <div class="card reveal" style="--accent:var(--c-purple)">
         <div class="ico">🔍</div>
         <h3>second-perspective</h3>
-        <p>决策前理性审计工具，离线、中立、不替代决策。</p>
-        <div class="tags"><span class="tag">AI 治理</span><span class="tag">因果推理</span><span class="tag">决策审计</span></div>
+        <p>A pre-decision rational audit tool — offline, neutral, and never replaces the decision.</p>
+        <div class="tags"><span class="tag">AI Governance</span><span class="tag">Causal Inference</span><span class="tag">Decision Audit</span></div>
         <a class="card-link" href="https://gitee.com/sjiun/second-perspective">Gitee →</a>
       </div>
       <div class="card reveal" style="--accent:var(--c-green)">
         <div class="ico">📖</div>
         <h3>story-engine</h3>
-        <p>AIGC 故事生成引擎，保持角色与剧情一致、逻辑无漏洞。</p>
-        <div class="tags"><span class="tag">内容生成</span><span class="tag">创意 AI</span><span class="tag">叙事生成</span></div>
+        <p>An AIGC story-generation engine that keeps characters and plot coherent with airtight logic.</p>
+        <div class="tags"><span class="tag">Content Gen</span><span class="tag">Creative AI</span><span class="tag">Narrative Gen</span></div>
         <a class="card-link" href="https://gitee.com/sjiun/story-engine">Gitee →</a>
       </div>
       <div class="card reveal" style="--accent:var(--c-red)">
         <div class="ico">🌐</div>
         <h3>SPL-virtual-world-core</h3>
-        <p>为 AI 驱动、规则不可变的开源虚拟世界引擎（数字文明方舟）。</p>
-        <div class="tags"><span class="tag">数字孪生</span><span class="tag">元宇宙</span><span class="tag">治理框架</span></div>
+        <p>An AI-driven, rule-immutable open-source virtual-world engine (the "Digital Civilization Ark").</p>
+        <div class="tags"><span class="tag">Digital Twin</span><span class="tag">Metaverse</span><span class="tag">Governance</span></div>
         <a class="card-link" href="https://gitee.com/sjiun/SPL-virtual-world-core">Gitee →</a>
       </div>
     </div>
@@ -393,14 +393,14 @@ snap = core.<span class="f">snapshot</span>()
 <footer>
   <div class="wrap">
     <div class="links">
-      <a href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine">GitHub 仓库</a>
-      <a href="https://gitee.com/sjiun/Anthropomorphic-Agent-Engine">Gitee 镜像</a>
-      <a href="https://nohn-ai.github.io/Anthropomorphic-Agent-Engine/">GitHub Pages</a>
-      <a href="en/">English</a>
+      <a href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine">GitHub Repo</a>
+      <a href="https://gitee.com/sjiun/Anthropomorphic-Agent-Engine">Gitee Mirror</a>
+      <a href="../">GitHub Pages</a>
+      <a href="../">中文</a>
     </div>
     <p class="lic-note">
-      © 2026 Shanghai Linming Junhua Technology Co., Ltd. & NOHN AI TECHNOLOGY PTE. LTD. 保留所有权利。<br/>
-      个人仅可在非商业学术研究中免费使用；政府 / 企业任何用途须事先签署商业授权协议。详见仓库 <a href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/LICENSE" style="color:var(--text-dim);text-decoration:underline;">LICENSE</a>。
+      © 2026 Shanghai Linming Junhua Technology Co., Ltd. & NOHN AI TECHNOLOGY PTE. LTD. All rights reserved.<br/>
+      Personal, non-commercial academic research use is free; any government / enterprise use requires a signed commercial license. See the repo <a href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/LICENSE" style="color:var(--text-dim);text-decoration:underline;">LICENSE</a>.
     </p>
   </div>
 </footer>
