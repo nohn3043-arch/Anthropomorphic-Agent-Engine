@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SPL Pure Core · 拟人心理引擎</title>
+<style>
+  :root{
+    --bg-0:#0B1120;
+    --bg-1:#111827;
+    --text:#E5E7EB;
+    --text-dim:#9CA3AF;
+    --c-blue:#3B82F6;
+    --c-cyan:#22D3EE;
+    --c-purple:#8B5CF6;
+    --c-green:#10B981;
+    --c-amber:#F59E0B;
+    --c-red:#EF4444;
+    --glass:rgba(255,255,255,0.05);
+    --glass-border:rgba(255,255,255,0.10);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    font-family:"PingFang-SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg-0);
+    color:var(--text);
+    line-height:1.7;
+    overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ---------- NAV ---------- */
+  nav{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    backdrop-filter:blur(14px);
+    background:rgba(11,17,32,0.55);
+    border-bottom:1px solid var(--glass-border);
+  }
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;}
+  .brand{font-weight:700;font-size:18px;letter-spacing:.5px;
+    background:linear-gradient(90deg,var(--c-cyan),var(--c-purple));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .nav-links{display:flex;gap:28px;font-size:14px;color:var(--text-dim);}
+  .nav-links a:hover{color:var(--text);}
+  @media(max-width:720px){.nav-links{display:none;}}
+
+  /* ---------- HERO ---------- */
+  .hero{position:relative;padding:180px 0 120px;text-align:center;overflow:hidden;}
+  .glow{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;pointer-events:none;}
+  .glow.a{width:520px;height:520px;background:radial-gradient(circle,#3B82F6,transparent 70%);top:-120px;left:-80px;}
+  .glow.b{width:460px;height:460px;background:radial-gradient(circle,#8B5CF6,transparent 70%);top:40px;right:-60px;}
+  .glow.c{width:380px;height:380px;background:radial-gradient(circle,#22D3EE,transparent 70%);bottom:-120px;left:40%;}
+  .hero h1{position:relative;font-size:56px;font-weight:700;line-height:1.15;margin-bottom:20px;}
+  .hero h1 .grad{
+    background:linear-gradient(90deg,var(--c-cyan),var(--c-blue),var(--c-purple));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero p.sub{position:relative;font-size:20px;color:var(--text-dim);max-width:680px;margin:0 auto 40px;}
+  .badges{position:relative;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:44px;}
+  .badge{font-size:13px;padding:7px 16px;border-radius:999px;background:var(--glass);
+    border:1px solid var(--glass-border);color:var(--text-dim);}
+  .cta{position:relative;display:flex;gap:16px;justify-content:center;flex-wrap:wrap;}
+  .btn{padding:13px 28px;border-radius:12px;font-size:15px;font-weight:600;transition:.25s;cursor:pointer;}
+  .btn.primary{background:linear-gradient(90deg,var(--c-blue),var(--c-purple));color:#fff;
+    box-shadow:0 8px 30px rgba(59,130,246,.35);}
+  .btn.primary:hover{transform:translateY(-3px);box-shadow:0 12px 40px rgba(139,92,246,.45);}
+  .btn.ghost{background:var(--glass);border:1px solid var(--glass-border);color:var(--text);}
+  .btn.ghost:hover{background:rgba(255,255,255,.10);transform:translateY(-3px);}
+
+  /* ---------- SECTION ---------- */
+  section{padding:90px 0;position:relative;}
+  .sec-head{text-align:center;margin-bottom:56px;}
+  .sec-tag{font-size:13px;letter-spacing:3px;text-transform:uppercase;color:var(--c-cyan);font-weight:600;}
+  .sec-head h2{font-size:36px;font-weight:700;margin-top:10px;}
+  .sec-head p{color:var(--text-dim);margin-top:14px;max-width:640px;margin-left:auto;margin-right:auto;}
+
+  /* ---------- ARCHITECTURE ---------- */
+  .arch{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:stretch;}
+  .arch-card{background:var(--glass);border:1px solid var(--glass-border);border-radius:18px;padding:30px;
+    backdrop-filter:blur(10px);}
+  .arch-card h3{font-size:20px;margin-bottom:12px;}
+  .arch-card .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;}
+  .arch-card ul{list-style:none;margin-top:10px;}
+  .arch-card li{font-size:14px;color:var(--text-dim);padding:6px 0;border-bottom:1px dashed rgba(255,255,255,.06);}
+  .arch-arrow{display:flex;align-items:center;justify-content:center;color:var(--c-purple);font-size:26px;}
+  @media(max-width:820px){.arch{grid-template-columns:1fr;}.arch-arrow{transform:rotate(90deg);}}
+
+  /* ---------- GRID CARDS ---------- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px;}
+  .card{background:var(--glass);border:1px solid var(--glass-border);border-radius:18px;padding:28px;
+    backdrop-filter:blur(10px);transition:.3s;position:relative;overflow:hidden;}
+  .card::before{content:"";position:absolute;inset:0;border-radius:18px;padding:1px;
+    background:linear-gradient(135deg,transparent,var(--accent,var(--c-blue)),transparent);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:.3s;}
+  .card:hover{transform:translateY(-8px);background:rgba(255,255,255,.07);}
+  .card:hover::before{opacity:.8;}
+  .card .ico{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;margin-bottom:16px;background:rgba(255,255,255,.06);}
+  .card h3{font-size:19px;margin-bottom:8px;}
+  .card p{font-size:14px;color:var(--text-dim);}
+  .card .tags{margin-top:14px;display:flex;flex-wrap:wrap;gap:7px;}
+  .tag{font-size:12px;padding:4px 10px;border-radius:8px;background:rgba(255,255,255,.05);color:var(--text-dim);}
+
+  /* ---------- TIMELINE ---------- */
+  .timeline{position:relative;max-width:760px;margin:0 auto;padding-left:30px;}
+  .timeline::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;
+    background:linear-gradient(180deg,var(--c-blue),var(--c-purple),var(--c-red));}
+  .tl-item{position:relative;padding:0 0 38px 28px;}
+  .tl-item::before{content:"";position:absolute;left:-26px;top:6px;width:14px;height:14px;border-radius:50%;
+    background:var(--bg-0);border:3px solid var(--c-cyan);box-shadow:0 0 14px var(--c-cyan);}
+  .tl-item.p2::before{border-color:var(--c-green);box-shadow:0 0 14px var(--c-green);}
+  .tl-item.p3::before{border-color:var(--c-red);box-shadow:0 0 14px var(--c-red);}
+  .tl-item h4{font-size:18px;margin-bottom:6px;}
+  .tl-item .phase{font-size:12px;color:var(--c-cyan);font-weight:600;letter-spacing:1px;}
+  .tl-item.p2 .phase{color:var(--c-green);}
+  .tl-item.p3 .phase{color:var(--c-red);}
+  .tl-item p{font-size:14px;color:var(--text-dim);}
+
+  /* ---------- CODE ---------- */
+  .code{background:#0d1424;border:1px solid var(--glass-border);border-radius:16px;padding:28px;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:13.5px;line-height:1.8;
+    overflow-x:auto;color:#cbd5e1;position:relative;}
+  .code .k{color:#c084fc;}
+  .code .s{color:#86efac;}
+  .code .c{color:#64748b;}
+  .code .f{color:#38bdf8;}
+  .code-wrap{max-width:760px;margin:0 auto;}
+
+  /* ---------- FOOTER ---------- */
+  footer{border-top:1px solid var(--glass-border);padding:48px 0;text-align:center;color:var(--text-dim);font-size:14px;}
+  footer .links{display:flex;gap:22px;justify-content:center;margin-bottom:20px;flex-wrap:wrap;}
+  footer .links a:hover{color:var(--text);}
+  .lic-note{max-width:720px;margin:0 auto;font-size:12.5px;color:#6b7280;line-height:1.6;}
+
+  /* ---------- REVEAL ---------- */
+  .reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease;}
+  .reveal.in{opacity:1;transform:none;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand">SPL · Pure Core</div>
+    <div class="nav-links">
+      <a href="#arch">架构</a>
+      <a href="#systems">心理子系统</a>
+      <a href="#demo">苏瑾演示</a>
+      <a href="#start">快速开始</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="glow a"></div>
+  <div class="glow b"></div>
+  <div class="glow c"></div>
+  <div class="wrap">
+    <h1>一个<span class="grad">没有灵魂</span>的引擎，<br/>却拥有人类的<span class="grad">心理构造</span></h1>
+    <p class="sub">SPL Pure Core V8.0 —— 一套确定性、语义无关的拟人心理动力学内核。它不理解"赞美"或"背叛"，却能复现情绪惯性、创伤、自尊、睡眠加工与防御机制。</p>
+    <div class="badges">
+      <span class="badge">8 维情绪流体</span>
+      <span class="badge">心境层 · 自尊</span>
+      <span class="badge">睡眠 / 梦境加工</span>
+      <span class="badge">预期系统</span>
+      <span class="badge">认知失调</span>
+      <span class="badge">防御机制层级</span>
+      <span class="badge">纯 Python · 零依赖</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine">查看代码</a>
+      <a class="btn ghost" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine#readme">阅读文档</a>
+    </div>
+  </div>
+</header>
+
+<section id="arch">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">Architecture</div>
+      <h2>三层结构：躯体 · 滤镜 · 自设</h2>
+      <p>核心引擎是"躯体"，提供通用的心理动力；映射器是"滤镜"，把事件翻译成内感受向量；feature 模块是企业/政府可自定义的人格模板。</p>
+    </div>
+    <div class="arch reveal">
+      <div class="arch-card">
+        <h3><span class="dot" style="background:var(--c-blue)"></span>核心引擎 Core</h3>
+        <p style="color:var(--text-dim);font-size:14px;">语义无关的心理动力学，所有人共有。</p>
+        <ul>
+          <li>情绪流体动力学</li>
+          <li>创伤节点与愈合</li>
+          <li>记忆重巩固 · 遗忘曲线</li>
+          <li>压抑-反弹 · 隐压雪崩</li>
+          <li>信任容量腐蚀</li>
+          <li>心境 / 自尊 / 睡眠债</li>
+        </ul>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-card">
+        <h3><span class="dot" style="background:var(--c-purple)"></span>映射器 Mapper</h3>
+        <p style="color:var(--text-dim);font-size:14px;">唯一注入"语义"的一层，决定角色灵魂。</p>
+        <ul>
+          <li>NarrativeMapper 通用</li>
+          <li>SujinMapper 苏瑾专属</li>
+          <li>价值观 / 身份权重</li>
+          <li>认知偏见调制</li>
+          <li>互斥情绪组</li>
+          <li>行为规则</li>
+        </ul>
+      </div>
+    </div>
+    <div class="arch reveal" style="margin-top:18px;">
+      <div class="arch-card" style="grid-column:1/-1;">
+        <h3><span class="dot" style="background:var(--c-cyan)"></span>自设模块 feature/（企业 / 政府模板）</h3>
+        <p style="color:var(--text-dim);font-size:14px;">WorldModel · BiasEngine · IdentityEngine · ValueEngine · GoalEngine —— 教组织如何为不同场景配置一个拟人 Agent。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="systems">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">Psychological Subsystems</div>
+      <h2>V8.0 通用心理构成</h2>
+      <p>以下七项并非角色自设，而是所有人类共有的心理架构，已写入核心引擎。</p>
+    </div>
+    <div class="grid">
+      <div class="card reveal" style="--accent:var(--c-blue)">
+        <div class="ico">🌊</div>
+        <h3>8 维情绪流体</h3>
+        <p>喜悦 · 愤怒 · 恐惧 · 信任 · 疏离 · 张力 · 愧疚 · 羞耻。各维以自适应粘滞度向动态目标松弛，构成瞬时情绪。</p>
+        <div class="tags"><span class="tag">动态粘滞</span><span class="tag">情绪反馈</span></div>
+      </div>
+      <div class="card reveal" style="--accent:var(--c-cyan)">
+        <div class="ico">🌗</div>
+        <h3>心境层 Mood</h3>
+        <p>慢变量背景情绪（愉悦 / 紧张 / 精力），惯性极大（约 1 小时半衰期），持续调制认知评估的增益。</p>
+        <div class="tags"><span class="tag">慢变量</span><span class="tag">Russell 环状</span></div>
+      </div>
+      <div class="card reveal" style="--accent:var(--c-purple)">
+        <div class="ico">🪞</div>
+        <h3>自尊动态 Self-Esteem</h3>
+        <p>自尊 [0,1] 随事件缓慢修正；低自尊者把失败内归因、放大威胁感——决定"我值多少"的自我感知。</p>
+        <div class="tags"><span class="tag">归因偏差</span><span class="tag">Rosenberg</span></div>
+      </div>
+      <div class="card reveal" style="--accent:var(--c-green)">
+        <div class="ico">🌙</div>
+        <h3>睡眠 / 梦境加工</h3>
+        <p>sleep(hours) 不仅恢复精力，更在"梦境"中衰减情绪电荷、实现恐惧消退——真正的"睡一觉就好"。</p>
+        <div class="tags"><span class="tag">REM 加工</span><span class="tag">睡眠债</span></div>
+      </div>
+      <div class="card reveal" style="--accent:var(--c-amber)">
+        <div class="ico">🔭</div>
+        <h3>预期系统 Anticipation</h3>
+        <p>expect() 设定对未来的积极/威胁预期；事件兑现产生惊喜，落空产生失望——让 Agent 为未来而感受。</p>
+        <div class="tags"><span class="tag">希望</span><span class="tag">焦虑</span><span class="tag">失望</span></div>
+      </div>
+      <div class="card reveal" style="--accent:var(--c-red)">
+        <div class="ico">⚖️</div>
+        <h3>认知失调 Dissonance</h3>
+        <p>信念与行为冲突时产生失调张力，超过阈值后自动通过"合理化"消解——Festinger 经典的自我辩护引擎。</p>
+        <div class="tags"><span class="tag">合理化</span><span class="tag">Festinger</span></div>
+      </div>
+      <div class="card reveal" style="--accent:var(--c-blue)">
+        <div class="ico">🛡️</div>
+        <h3>防御机制层级</h3>
+        <p>否认 → 合理化 → 压抑，逐级递进。高压下先否认现实，失效则合理化，再失效则压抑入隐压池等待反弹。</p>
+        <div class="tags"><span class="tag">否认</span><span class="tag">置换</span><span class="tag">压抑</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">Case Study</div>
+      <h2>苏瑾 · 三阶段拟人剧情</h2>
+      <p>同一套核心引擎，换上 SujinMapper，即可演绎一个从低信任到共创、再到背叛后缓慢修复的人物弧光。</p>
+    </div>
+    <div class="timeline">
+      <div class="tl-item reveal">
+        <div class="phase">PHASE 01 · 低信任严谨</div>
+        <h4>戒备中的专业</h4>
+        <p>信任容量低，对批评敏感、对夸奖保留。预期落空会放大负面情绪，自尊在反复试探中轻微动摇。</p>
+      </div>
+      <div class="tl-item p2 reveal">
+        <div class="phase">PHASE 02 · 高信任共创</div>
+        <h4>默契与心流</h4>
+        <p>经过睡眠的梦境加工与预期兑现，信任上升、心境转暖、自尊达到高位，进入高效共创状态。</p>
+      </div>
+      <div class="tl-item p3 reveal">
+        <div class="phase">PHASE 03 · 背叛与修复</div>
+        <h4>羞耻、崩塌与缓慢愈合</h4>
+        <p>背叛触发羞耻维度与自尊崩塌，防御层级启动；认知失调在睡眠中逐步合理化，长期愈合但 max_trust 永久降低。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">Quick Start</div>
+      <h2>30 行跑起来</h2>
+      <p>纯 Python，零依赖。核心不认识任何事件名，所有语义由外部映射器注入。</p>
+    </div>
+    <div class="code-wrap reveal">
+<div class="code"><span class="k">from</span> SPL_anthropic_engine <span class="k">import</span> <span class="f">SPLPureCoreV7_3</span>
+
+<span class="c"># 创建核心（类名 V7_3 为兼容命名，内部即 V8.0 通用心理架构）</span>
+core = <span class="f">SPLPureCoreV7_3</span>(psychological_resilience=0.4)
+core.<span class="f">set_clock</span>(0.0)
+
+<span class="c"># 注入内感受向量（语义无关）：威胁 / 归属 / 自主 / 疲劳 / 羞耻触发</span>
+core.<span class="f">process_vector</span>({<span class="s">"threat"</span>: 0.5, <span class="s">"belonging"</span>: -0.6}, intensity=1.0)
+
+<span class="c"># 设定对未来的预期，随后兑现 → 惊喜 / 落空 → 失望</span>
+core.<span class="f">expect</span>(<span class="s">"sign_contract"</span>, valence=0.6, confidence=0.7)
+
+<span class="c"># 睡眠：梦境加工情绪、消退恐惧、偿还睡眠债</span>
+core.<span class="f">sleep</span>(hours=8)
+
+<span class="c"># 认知失调：信念冲突 → 张力 → 自动合理化消解</span>
+core.<span class="f">induce_dissonance</span>(magnitude=0.5, belief_domain=<span class="s">"loyalty"</span>)
+
+<span class="c"># 读取完整心理快照</span>
+snap = core.<span class="f">snapshot</span>()
+<span class="k">print</span>(snap[<span class="s">"fluid"</span>], snap[<span class="s">"mood"</span>], snap[<span class="s">"self_esteem"</span>])
+</div>
+    </div>
+    <div class="cta" style="margin-top:36px;">
+      <a class="btn primary" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/sujin-demo">运行 sujin-demo</a>
+      <a class="btn ghost" href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/feature">查看自设模板</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine">GitHub 仓库</a>
+      <a href="https://gitee.com/lin-mingjun-hua_0/Anthropomorphic-Agent-Engine">Gitee 镜像</a>
+      <a href="https://nohn-ai.github.io/Anthropomorphic-Agent-Engine/">GitHub Pages</a>
+    </div>
+    <p class="lic-note">
+      © 2026 Shanghai Linming Junhua Technology Co., Ltd. & NOHN AI TECHNOLOGY PTE. LTD. 保留所有权利。<br/>
+      个人仅可在非商业学术研究中免费使用；政府 / 企业任何用途须事先签署商业授权协议。详见仓库 <a href="https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/blob/main/LICENSE" style="color:var(--text-dim);text-decoration:underline;">LICENSE</a>。
+    </p>
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  },{threshold:0.12});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

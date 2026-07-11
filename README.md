@@ -1,74 +1,108 @@
-##  The soul does not exist.  
-## The mind is not mysterious. 
+##  The soul does not exist.
+## The mind is not mysterious.
 
 ---
 
-SPL Pure Core V7.3
+# SPL Pure Core V8.0
 
-A deterministic, semantics‑free personality dynamics engine.
-
----
-
-What It Is
-
-A 300‑line Python core that simulates emotional inertia, trauma imprinting, memory reconsolidation, suppression‑rebound, and trust erosion — without knowing what an "insult" or "compliment" is.
-
-It takes three numerical dimensions (threat, belonging, fatigue) and produces fluid emotional states, trauma nodes, and memory traces with forgetting.
-
-The core is the body; the mapper is the soul.
+A deterministic, semantics‑free anthropomorphic psychology engine — the *universal* mental architecture every human shares, separated from any particular character's "soul".
 
 ---
 
-Core Mechanisms
+## What It Is
 
-Mechanism What It Does
-7‑dimension fluid field Joy, anger, fear, trust, alienation, tension, guilt — relax towards dynamic targets with adaptive viscosity.
-Trauma nodes Form when threat exceeds resilience‑weighted threshold; bias future fluid targets.
-Memory reconsolidation Old traces reactivate on similar input; safety (trust × (1‑fear)) determines whether they weaken or strengthen.
-Forgetting curve Exponential decay (I·e^(−λt)); weak traces pruned; bounded pool (64 traces) with importance‑based eviction.
-Suppression–rebound Suppressed negative emotions accumulate; burst when load exceeds threshold — with cooldown.
-Trust capacity erosion Each negative belonging shock multiplies max_trust (e.g., ×0.92); recovery is logarithmic and partial.
-Latent pressure avalanche Threat and belonging deficits accumulate; release when threshold met — with cooldown.
+A pure‑Python core that simulates emotional inertia, trauma imprinting, memory reconsolidation, suppression‑rebound, trust erosion, **plus the V8.0 additions**: a slow mood layer, self‑esteem dynamics, sleep/dream processing, an anticipatory system, cognitive dissonance, and a layered defense‑mechanism hierarchy — without knowing what an "insult" or "compliment" is.
+
+It ingests numerical interoceptive vectors (`threat`, `belonging`, `autonomy`, `fatigue`, `shame_trigger`) and produces fluid emotional states, a slow mood background, self‑esteem, trauma nodes, and memory traces with forgetting.
+
+**The core is the body; the mapper is the soul.** All semantics (insult, compliment, betrayal) live in the external mapper — not in the engine.
+
+> Note on naming: the class is still exported as `SPLPureCoreV7_3` for backward compatibility; internally it is the V8.0 universal psychological architecture.
 
 ---
 
-Interface
+## V8.0 Universal Psychological Subsystems
 
-One public method:
+These are **not** character self‑settings — they are the shared mental structure of every human, baked into the core:
+
+| Subsystem | What It Models |
+|---|---|
+| 8‑dimension fluid field | 喜悦 · 愤怒 · 恐惧 · 信任 · 疏离 · 张力 · 愧疚 · 羞耻 — relax toward dynamic targets with adaptive viscosity |
+| Mood layer | Slow background affect (愉悦 / 紧张 / 精力), ~1h half‑life, continuously modulates appraisal gain |
+| Self‑esteem | `self_esteem ∈ [0,1]`; low esteem internalizes failure & amplifies threat (attribution bias) |
+| Sleep / dream | `sleep(hours)` recovers energy **and** decays emotional charge / fear extinction in "dreams" |
+| Anticipation | `expect()` sets future hope/threat; fulfillment → surprise, violation → disappointment |
+| Cognitive dissonance | Belief–behavior conflict → tension → auto‑resolved via rationalization past threshold |
+| Defense hierarchy | Denial → rationalization → repression, escalating under load |
+
+Plus the V7 foundations: trauma nodes, memory reconsolidation, Ebbinghaus forgetting (64‑trace bounded pool), suppression‑rebound, trust‑capacity erosion, latent‑pressure avalanche, excitation/arousal, energy/fatigue metabolism.
+
+---
+
+## Interface
+
+Public methods:
 
 ```python
-def process_vector(vector: Dict[str, float], intensity: float = 1.0)
+core = SPLPureCoreV7_3(psychological_resilience=0.4)
+core.set_clock(0.0)
+
+# Inject interoceptive vector (semantics-free)
+core.process_vector({"threat": 0.5, "belonging": -0.6, "fatigue": 0.1}, intensity=1.0)
+
+# Anticipation: set expectation, later fulfilled or violated
+core.expect("sign_contract", valence=0.6, confidence=0.7)
+
+# Sleep: dream processing + fear extinction + sleep-debt repayment
+core.sleep(hours=8)
+
+# Cognitive dissonance: belief conflict -> tension -> rationalization
+core.induce_dissonance(magnitude=0.5, belief_domain="loyalty")
+
+# Full psychological snapshot
+snap = core.snapshot()   # fluid, mood, self_esteem, cognitive_dissonance, sleep_debt, ...
 ```
 
-Where vector may contain any of: "threat", "belonging", "fatigue".
-
-The core does not recognise event names. All semantics (insult, compliment, betrayal) are external.
+The core does not recognise event names. All semantics are external (see `sujin-demo` and `feature/`).
 
 ---
 
-Personality Customisation
+## Repository Layout
 
-Swap the external mapper. Same core, different soul:
+```
+SPL-anthropic-engine.py   # V8.0 core engine (the body)
+sujin-demo                # SujinMapper + SujinAgent, 3-phase narrative demo
+feature/                  # Self-setting templates for orgs/governments:
+  world module.py         #   WorldModel
+  bias module.py          #   BiasEngine (cognitive biases)
+  Identity module.py      #   IdentityEngine (role conflicts)
+  value module.py         #   ValueEngine (value weighting)
+  Goal module.py          #   GoalEngine (goal受阻/达成 -> emotion)
+docs/index.html           # GitHub Pages intro site (this repo's /docs)
+```
+
+`feature/` is a *template* showing enterprises/governments how to configure an anthropomorphic agent for their own scenario. It is not required to run the core.
+
+---
+
+## Quick Start
+
+```bash
+python sujin-demo          # run the full Sujin narrative demo
+```
+
+Or import the core directly:
 
 ```python
-class ParanoidMapper:
-    def map_event(event, intensity):
-        if event == "praise":
-            return {"threat": 0.4, "belonging": 0.1}   # "they're mocking me"
-        if event == "criticism":
-            return {"threat": 0.8, "belonging": -0.5}  # "they're attacking me"
-
-class SecureMapper:
-    def map_event(event, intensity):
-        if event == "praise":
-            return {"belonging": 0.3, "threat": -0.1}  # "they appreciate me"
-        if event == "criticism":
-            return {"belonging": -0.1, "threat": 0.1}  # "they're helping me"
+from SPL_anthropic_engine import SPLPureCoreV7_3
+core = SPLPureCoreV7_3()
+core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
+print(core.snapshot())
 ```
 
 ---
 
-Engineering Properties
+## Engineering Properties
 
 · Deterministic — same input, same output.
 · Bounded memory — 64 trace cap; O(1) per call.
@@ -78,17 +112,7 @@ Engineering Properties
 
 ---
 
-Quick Start
-
-```python
-core = SPLPureCoreV7_3(psychological_resilience=0.4)
-core.process_vector({"threat": 0.5, "belonging": -0.6})
-print(core.snapshot())
-```
-
----
-
-Use Cases
+## Use Cases
 
 · Game NPCs with long‑term memory and emotional inertia.
 · Digital humans / virtual assistants with believable rapport.
@@ -98,9 +122,35 @@ Use Cases
 
 ---
 
-Status
+## Deploy & Remotes
 
-Version 7.3 — stable, feature‑complete for narrative‑driven applications.
+This repository is mirrored to two remotes:
+
+| Remote | URL |
+|---|---|
+| `github` | https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine.git |
+| `gitee`  | https://gitee.com/lin-mingjun-hua_0/Anthropomorphic-Agent-Engine.git |
+
+Push to both:
+
+```bash
+git push github main
+git push gitee  main
+```
+
+### GitHub Pages (intro site)
+
+The landing page lives at `docs/index.html` and is published via GitHub Pages:
+
+**URL:** https://nohn-ai.github.io/Anthropomorphic-Agent-Engine/
+
+To (re)enable after a fresh clone, go to the GitHub repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch → Branch: `main` / Folder: `/docs` → Save.** No build step is needed (static HTML, no external dependencies).
+
+---
+
+## Status
+
+Version 8.0 — universal psychological architecture added on top of the V7 narrative core.
 
 ---
 
