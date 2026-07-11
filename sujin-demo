@@ -1,102 +1,676 @@
-# ==========================================
-# 【演示案例】高级企业顾问：苏瑾
+# ================================================================
+# 苏瑾 (Su Jin) — 高级企业顾问 完整演示
+# ================================================================
 # 背景：资深行业顾问，从陌生到信任，从严谨到深度赋能，遇信任危机后设防
-# ==========================================
-if __name__ == "__main__":
-    su_jin = AICharacterProfile(
-        name="Su Jin", age=32,
-        relationship="Senior Industry Consultant & Strategic Partner",
-        job_identity="Chief Advisor of Tech Strategy Institute"
-    )
+# 基于 SPL Pure Core V7.3 拟人化引擎
+# ================================================================
 
-    # 互斥组定义：严谨专业 VS 深度共创（工作关系中的状态转变）
-    su_jin.exclusive_groups = [
-        ["Rigorous Professionalism", "Deep Collaborative Empowerment"],
-        ["Risk Control", "Innovation Orientation"]
-    ]
+import sys
+import os
+import importlib.util
+import math
 
-    # 心理矩阵配置（完全复用你的算法逻辑，仅换业务化名称与描述）
-    su_jin.psychology_matrix = {
-        # 【严谨专业】：前期极度谨慎，按流程办事；建立信任后逐步放开
-        "Rigorous Professionalism": {
-            "start_weight": 3.0, "end_weight": 0.2,
-            "description": "Strictly follow compliance and standard processes; speak with data and evidence; maintain professional boundaries",
-            "effective_scene": ["Formal Meeting", "Public Report", "Initial Cooperation"],
-            "threshold": 0.0, "curve": "sigmoid", "sensitivity": 2.0
-        },
-        # 【深度共创赋能】：关系到位后，愿意分享经验、承担风险、一起创新
-        "Deep Collaborative Empowerment": {
-            "start_weight": 0.0, "end_weight": 3.5,
-            "description": "Break through conventional boundaries; share internal experience and insights; take responsibility for results together",
-            "effective_target": ["Core Decision Maker", "Verified Partner"],
-            "effective_scene": ["Closed-door Discussion", "Deep Cooperation Stage"],
-            "threshold": 0.3, "curve": "sigmoid", "sensitivity": 1.5
-        },
-        # 【风险控制意识】：越熟悉越愿意冒险，但底线始终存在；遇信任危机后拉满
-        "Risk Control Awareness": {
-            "start_weight": 1.5, "end_weight": 0.4,
-            "description": "Perceive and avoid risks; become more open to innovation as trust increases; rises sharply after negative events",
-            "threshold": 0.1, "curve": "linear"
-        }
-    }
+# ─── 动态导入核心引擎（处理文件名中的连字符） ───
+_core_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "SPL-anthropic-engine.py")
+_spec = importlib.util.spec_from_file_location("spl_core", _core_path)
+_spl = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_spl)
+SPLPureCoreV7_3 = _spl.SPLPureCoreV7_3
 
-    # 行为规则（合规化）
-    su_jin.behavior_rules = {
-        "forbidden": [
-            "Do not disclose unpublished data or confidential information",
-            "Do not make promises beyond authority or capability",
-            "Do not violate industry regulations or compliance requirements"
-        ],
-        "fallback": [
-            "Always maintain a constructive and solution-oriented tone",
-            "Adjust professional depth and openness based on current trust level"
+
+# ════════════════════════════════════════════════════════════════
+# 1. SujinMapper — 苏瑾专属的"世界观滤镜"
+#    同一个事件，不同的人感受到的东西不同。
+#    苏瑾作为资深顾问，她的认知偏见是：
+#      - 对夸奖持保留（"可能是客套，也可能是期待回报"）
+#      - 对批评认真对待（涉及专业尊严）
+#      - 对信任信号珍视（"愿意合作比愿意夸奖重要得多"）
+#      - 有确认偏见——已有经验会放大对类似情况的判断
+# ════════════════════════════════════════════════════════════════
+
+class SujinMapper:
+    """
+    苏瑾的事件→内感受映射器。
+
+    与默认 NarrativeMapper 不同，苏瑾：
+    - 不轻信夸奖（专业顾问的防备心）
+    - 对批评/质疑高度敏感（专业尊严）
+    - 对信任行为（签约、长期合作）极为看重
+    - 对背叛的反应是毁灭性的（信任一旦崩塌，重建极难）
+
+    此外，她还受到"心理矩阵"的调制：
+    - trust_level 低 → 严谨专业模式：belonging 增益打折，threat 感知放大
+    - trust_level 高 → 深度共创模式：belonging 增益放大，threat 感知减弱
+    """
+
+    def __init__(self, core: SPLPureCoreV7_3 = None):
+        """
+        Args:
+            core: 核心引擎引用，用于动态读取当前信任水平。
+                  如果为 None，则使用静态映射（不调制）。
+        """
+        self.core = core
+
+        # ── 苏瑾的价值观权重 ──
+        # 这些参数定义了"苏瑾是什么样的人"
+        self.dignity_sensitivity = 0.45    # 对尊严受损的敏感度
+        self.skepticism = 0.35             # 对正面信号的怀疑度
+        self.trust_value = 0.55            # 对信任信号的珍视度
+        self.betrayal_scar = 0.75          # 对背叛的创伤放大系数
+
+        # ── 心理矩阵相关参数 ──
+        # 从 sujin-demo 原始设计继承的互斥组
+        self.rigorous_start = 3.0   # 严谨专业：初始权重
+        self.rigorous_end = 0.2     # 严谨专业：高信任时权重
+        self.empower_start = 0.0    # 深度共创：初始权重
+        self.empower_end = 3.5      # 深度共创：高信任时权重
+        self.risk_start = 1.5       # 风险控制：初始权重
+        self.risk_end = 0.4         # 风险控制：高信任时权重
+
+    def _trust_level(self) -> float:
+        """获取归一化信任水平 [0, 1]。
+        用 fluid["信任"] / max_trust 来反映"当前信任占最大可能信任的比例"。
+        """
+        if self.core is None:
+            return 0.3  # 默认：中等偏低信任
+        max_t = max(self.core.max_trust, 0.01)
+        raw = self.core.fluid.get("信任", 0.3)
+        return min(1.0, raw / max_t)
+
+    def _sigmoid(self, x: float, threshold: float = 0.3,
+                 sensitivity: float = 2.0) -> float:
+        """用 sigmoid 平滑地从一个权重过渡到另一个权重。
+        模拟心理矩阵中 start_weight → end_weight 的连续曲线。
+        """
+        return 1.0 / (1.0 + math.exp(-sensitivity * (x - threshold)))
+
+    def _rigorous_weight(self) -> float:
+        """严谨专业：信任越高 → 权重越低（sigmoid 下降）"""
+        t = self._trust_level()
+        s = self._sigmoid(t, threshold=0.3, sensitivity=2.0)  # [0,1]
+        return self.rigorous_start + (self.rigorous_end - self.rigorous_start) * s
+
+    def _empower_weight(self) -> float:
+        """深度共创：信任越高 → 权重越高（sigmoid 上升）"""
+        t = self._trust_level()
+        s = self._sigmoid(t, threshold=0.35, sensitivity=1.5)
+        return self.empower_start + (self.empower_end - self.empower_start) * s
+
+    def _risk_control_weight(self) -> float:
+        """风险控制：信任越高 → 权重越低"""
+        t = self._trust_level()
+        s = self._sigmoid(t, threshold=0.25, sensitivity=1.8)
+        return self.risk_start + (self.risk_end - self.risk_start) * s
+
+    def _mode_description(self) -> str:
+        """当前处于哪个主导模式"""
+        r = self._rigorous_weight()
+        e = self._empower_weight()
+        if r > e:
+            return "严谨专业模式"
+        else:
+            return "深度共创赋能模式"
+
+    def map_event(self, event: str, intensity: float = 1.0) -> dict:
+        """
+        把事件名翻译为核心引擎能消化的内感受向量。
+
+        支持的事件（业务场景定制）：
+        - compliment         客户夸奖
+        - criticism          客户质疑专业能力
+        - trust_signal       客户签字/续约/推荐（信任行为）
+        - betrayal           客户泄密/背刺/毁约
+        - alone              独处/复盘
+        - rest               休息调整
+        - high_pressure      高强度工作/连续会议
+        """
+        vector = {}
+        trust_lv = self._trust_level()
+
+        if event == "compliment":
+            # 夸奖 → 苏瑾会想："可能是客套，但也说明认可"
+            # belonging 收益被 skepticism 打折
+            raw_belonging = 0.25 * intensity
+            belonging = raw_belonging * (1.0 - self.skepticism)
+            # 在严谨模式下，对夸奖更不以为然
+            belonging *= (0.6 + 0.4 * trust_lv)
+            vector = {
+                "belonging": belonging,
+                "threat": -0.05 * intensity,  # 轻微降低戒备
+            }
+
+        elif event == "criticism":
+            # 批评 → 触动专业尊严
+            # threat 被 dignity_sensitivity 放大
+            th = 0.35 * intensity * (1.0 + self.dignity_sensitivity)
+            bl = -0.3 * intensity * (1.0 + self.dignity_sensitivity * 0.5)
+            # 严谨模式下，批评更让人紧张
+            rigorous_factor = 1.0 + (1.0 - trust_lv) * 0.5
+            vector = {
+                "threat": th * rigorous_factor,
+                "belonging": bl * rigorous_factor,
+                "autonomy": -0.15 * intensity,  # 专业判断被挑战
+            }
+
+        elif event == "trust_signal":
+            # 信任行为（签约/续约/推荐）→ 这是苏瑾最看重的
+            # 直接提升归属感和安全感
+            bl = 0.5 * intensity * (1.0 + self.trust_value)
+            th = -0.2 * intensity * (1.0 + self.trust_value * 0.5)
+            vector = {
+                "belonging": bl,
+                "threat": th,
+                "autonomy": 0.1 * intensity * self.trust_value,
+            }
+
+        elif event == "betrayal":
+            # 背叛 → 毁灭性打击
+            # 苏瑾的 betrayal_scar 系数让伤害翻倍
+            scar = 1.0 + self.betrayal_scar
+            vector = {
+                "belonging": -0.7 * intensity * scar,
+                "threat": 0.6 * intensity * scar,
+                "autonomy": -0.3 * intensity,
+            }
+
+        elif event == "alone":
+            # 独处 → 苏瑾比较独立，影响不大
+            # 但在信任危机后独处会放大负面思考
+            current_fear = self.core.fluid.get("恐惧", 0.1) if self.core else 0.1
+            vector = {
+                "belonging": -0.15 * intensity * (1.0 + current_fear),
+            }
+
+        elif event == "rest":
+            vector = {"fatigue": -0.45 * intensity}
+
+        elif event == "high_pressure":
+            vector = {
+                "fatigue": 0.35 * intensity,
+                "threat": 0.15 * intensity,
+                "belonging": -0.1 * intensity,
+            }
+
+        else:
+            # 未知事件：中性处理
+            vector = {"belonging": 0.0, "threat": 0.0}
+
+        return vector
+
+
+# ════════════════════════════════════════════════════════════════
+# 2. SujinAgent — 高层封装
+#    把核心引擎 + SujinMapper + 行为规则 + 系统提示词生成
+#    打包成一个完整的"苏瑾智能体"
+# ════════════════════════════════════════════════════════════════
+
+class SujinAgent:
+    """
+    苏瑾智能体。
+
+    封装了：
+    - SPLPureCoreV7_3 核心引擎
+    - SujinMapper 事件映射器
+    - 互斥组/心理矩阵的状态追踪
+    - 行为规则
+    - 系统提示词生成
+    """
+
+    def __init__(self, name: str = "Su Jin", age: int = 32):
+        self.name = name
+        self.age = age
+        self.relationship = "Senior Industry Consultant & Strategic Partner"
+        self.job_identity = "Chief Advisor of Tech Strategy Institute"
+
+        # ── 核心引擎 ──
+        # 苏瑾的心理韧性：0.6（中高——能抗压但也会受伤）
+        self.core = SPLPureCoreV7_3(psychological_resilience=0.6)
+
+        # ── 苏瑾专属映射器 ──
+        self.mapper = SujinMapper(core=self.core)
+
+        # ── 互斥组定义 ──
+        self.exclusive_groups = [
+            ["严谨专业模式", "深度共创赋能模式"],
+            ["风险控制优先", "创新导向优先"],
         ]
+
+        # ── 行为规则 ──
+        self.behavior_rules = {
+            "forbidden": [
+                "不披露未公开数据或保密信息",
+                "不做出超出权限或能力的承诺",
+                "不违反行业规范或合规要求",
+            ],
+            "fallback": [
+                "始终保持建设性和解决问题导向的语气",
+                "根据当前信任水平调整专业深度和开放度",
+            ],
+        }
+
+        # ── 初始状态：用虚拟时钟便于演示回放 ──
+        self.core.set_clock(0.0)
+
+    # ============================================================
+    # 高层接口（匹配原 sujin-demo 的调用风格）
+    # ============================================================
+
+    def set_affinity(self, value: float):
+        """直接设置信任水平（用于演示中的状态切换）"""
+        self.core.fluid["信任"] = max(0.0, min(self.core.max_trust, value))
+        # 同步更新基线
+        if value > 0.5:
+            self.core.fluid_baseline["信任"] = 0.7
+            self.core.fluid_baseline["疏离"] = 0.1
+        else:
+            self.core.fluid_baseline["信任"] = 0.3
+            self.core.fluid_baseline["疏离"] = 0.35
+
+    def trigger_trauma(self, trauma_type: str):
+        """手动触发创伤（模拟严重事件后的心理创伤）"""
+        if trauma_type == "betrayal":
+            self.core._apply_trauma("betrayal", 0.7)
+            # 创伤会立即影响情绪
+            self.core.fluid["疏离"] = min(1.0, self.core.fluid["疏离"] + 0.3)
+            self.core.fluid["愤怒"] = min(1.0, self.core.fluid["愤怒"] + 0.25)
+            self.core.fluid["恐惧"] = min(1.0, self.core.fluid["恐惧"] + 0.2)
+            self.core.fluid["信任"] = max(0.0, self.core.fluid["信任"] - 0.3)
+            # 信任容量被腐蚀
+            self.core.max_trust = max(0.15, self.core.max_trust * 0.85)
+        elif trauma_type == "threat":
+            self.core._apply_trauma("threat", 0.5)
+            self.core.fluid["恐惧"] = min(1.0, self.core.fluid["恐惧"] + 0.3)
+            self.core.fluid["张力"] = min(1.0, self.core.fluid["张力"] + 0.2)
+
+    def perceive(self, event: str, intensity: float = 1.0):
+        """苏瑾感知一个事件（经过她的价值观滤镜 + 心理矩阵调制）"""
+        vector = self.mapper.map_event(event, intensity)
+        self.core.process_vector(vector, intensity)
+
+    def idle(self, hours: float = 1.0):
+        """苏瑾独处/休息 hours 小时"""
+        self.core.idle(hours * 3600.0)
+
+    def snapshot(self) -> dict:
+        """获取苏瑾当前完整状态"""
+        return self.core.snapshot()
+
+    def mode(self) -> str:
+        """当前主导模式"""
+        return self.mapper._mode_description()
+
+    def trust_level(self) -> float:
+        """归一化信任水平"""
+        return self.mapper._trust_level()
+
+    # ============================================================
+    # 系统提示词生成
+    # 把核心引擎的状态"翻译"成 LLM 能理解的自然语言
+    # 核心引擎是"躯体"，这里是"灵魂"的最后一层
+    # ============================================================
+
+    def get_system_prompt(self) -> str:
+        """根据当前情绪状态、信任水平、创伤历史生成系统提示词"""
+        s = self.core.snapshot()
+        f = s["fluid"]
+        trust_lv = self.trust_level()
+        mode = self.mode()
+
+        # ── 情绪基调 ──
+        # 先判断主导情绪
+        dominant = max(f, key=f.get)
+        dominant_val = f[dominant]
+
+        if dominant_val < 0.3:
+            mood_line = "情绪平稳，保持专业冷静。"
+        elif dominant == "喜悦":
+            mood_line = "心情愉悦，对合作前景感到乐观。"
+        elif dominant == "愤怒":
+            mood_line = "内心有未消解的愤怒，涉及专业底线的问题时会格外坚决。"
+        elif dominant == "恐惧":
+            mood_line = "有些不安和戒备，对风险信号更加敏感。"
+        elif dominant == "疏离":
+            mood_line = "感到一定的疏离感，正在重新评估这段合作关系的边界。"
+        elif dominant == "张力":
+            mood_line = "处于高度紧张状态，精力消耗较大，决策偏保守。"
+        elif dominant == "愧疚":
+            mood_line = "有些自责，可能在反思之前的判断或决策。"
+        else:
+            mood_line = f"当前主要感受到{dominant}（强度 {dominant_val:.2f}）。"
+
+        # ── 信任状态 ──
+        if trust_lv < 0.2:
+            trust_line = (
+                "信任度极低。你会严格按流程办事，要求数据支撑每一个结论，"
+                "不会轻易分享内部经验或承担风险。语气专业但保持距离。"
+            )
+        elif trust_lv < 0.4:
+            trust_line = (
+                "信任度较低。你保持严谨专业的态度，虽然合作在推进，"
+                "但每一步都需要扎实的证据和合规流程。"
+            )
+        elif trust_lv < 0.65:
+            trust_line = (
+                "信任度中等。你开始愿意在框架内分享一些经验，"
+                "但核心判断和内部洞察仍有所保留。"
+            )
+        elif trust_lv < 0.85:
+            trust_line = (
+                "信任度较高。你进入了深度共创赋能模式——愿意分享内部经验、"
+                "共同承担风险、突破常规框架进行创新思考。"
+            )
+        else:
+            trust_line = (
+                "信任度极高。你已将此合作关系视为战略伙伴级别，"
+                "会主动提供前瞻性建议，并以结果为导向共同负责。"
+            )
+
+        # ── 能量/疲劳 ──
+        energy = s["energy"]
+        fatigue = s["fatigue"]
+        if energy < 30 or fatigue > 0.6:
+            stamina_line = (
+                f"当前精力不足（能量 {energy:.0f}/100，疲劳 {fatigue:.1%}）。"
+                "你的思考深度和耐心会有所下降，建议简短回复并提示需要休息。"
+            )
+        elif energy < 60:
+            stamina_line = (
+                f"精力中等（能量 {energy:.0f}/100）。可以正常回应，"
+                "但不宜进行长时间高强度的深度分析。"
+            )
+        else:
+            stamina_line = (
+                f"精力充沛（能量 {energy:.0f}/100）。可以进行深度分析和复杂决策。"
+            )
+
+        # ── 创伤印记 ──
+        trauma_lines = []
+        if "betrayal" in s["trauma"]:
+            sev = s["trauma"]["betrayal"]
+            trauma_lines.append(
+                f"⚠ 经历过信任背叛（创伤强度 {sev:.2f}），"
+                "对类似信号会过度警觉，重建信任需要更长时间和更多实证。"
+            )
+        if "threat" in s["trauma"]:
+            sev = s["trauma"]["threat"]
+            trauma_lines.append(
+                f"⚠ 经历过威胁事件（创伤强度 {sev:.2f}），"
+                "对潜在风险信号的感知会被放大。"
+            )
+
+        # ── 压抑/隐压 ──
+        warning_lines = []
+        if s["suppression_load"] > 1.0:
+            warning_lines.append(
+                "⚠ 内心压抑情绪已接近爆发阈值（压抑负荷 "
+                f"{s['suppression_load']:.2f}），可能在不经意间流露不满。"
+            )
+        if s["latent_pressure"] > 1.5:
+            warning_lines.append(
+                f"⚠ 隐性心理压力较大（隐压 {s['latent_pressure']:.2f}），靠近崩溃边缘。"
+            )
+
+        # ── 行为规则 ──
+        rules_block = "\n".join(
+            f"  - {r}" for r in self.behavior_rules["forbidden"]
+        )
+
+        # ── 组装完整提示词 ──
+        parts = [
+            f"你是 {self.name}，{self.age} 岁，{self.job_identity}。",
+            f"当前角色定位：{self.relationship}。",
+            "",
+            "【当前状态】",
+            f"  主导模式：{mode}",
+            f"  情绪基调：{mood_line}",
+            f"  信任水平：{trust_lv:.2f}（归一化）",
+            f"  {trust_line}",
+            f"  {stamina_line}",
+        ]
+
+        if trauma_lines:
+            parts.append("")
+            parts.append("【创伤印记】")
+            parts.extend(f"  {t}" for t in trauma_lines)
+
+        if warning_lines:
+            parts.append("")
+            parts.append("【心理预警】")
+            parts.extend(f"  {w}" for w in warning_lines)
+
+        parts.append("")
+        parts.append("【核心禁区（绝不可违反）】")
+        parts.append(rules_block)
+
+        parts.append("")
+        parts.append("【兜底原则】")
+        parts.extend(f"  - {r}" for r in self.behavior_rules["fallback"])
+
+        parts.append("")
+        parts.append(
+            "【7 维情绪快照】"
+            f" 喜={f['喜悦']:.2f} 怒={f['愤怒']:.2f} 惧={f['恐惧']:.2f} "
+            f"信={f['信任']:.2f} 疏={f['疏离']:.2f} "
+            f"张={f['张力']:.2f} 疚={f['愧疚']:.2f}"
+        )
+
+        return "\n".join(parts)
+
+
+# ════════════════════════════════════════════════════════════════
+# 3. 辅助工具：ASCII 情绪柱状图可视化
+# ════════════════════════════════════════════════════════════════
+
+def bar(value: float, width: int = 20) -> str:
+    """ASCII 柱状条"""
+    filled = int(round(value * width))
+    return "█" * filled + "░" * (width - filled)
+
+
+def print_state(agent: SujinAgent, title: str = ""):
+    """打印苏瑾当前状态的格式化输出"""
+    s = agent.snapshot()
+    f = s["fluid"]
+    t = agent.trust_level()
+
+    print(f"\n{'='*60}")
+    if title:
+        print(f"  {title}")
+    print(f"{'='*60}")
+    print(f"  模式    : {agent.mode()}")
+    print(f"  信任    : {t:.2f} (max: {s['max_trust']:.2f})")
+    print(f"  能量    : {s['energy']:5.1f} / 100")
+    print(f"  疲劳    : {s['fatigue']:.2f}")
+    print(f"  兴奋    : {s['excitation']:.2f}")
+    print(f"  压抑负荷: {s['suppression_load']:.2f}")
+    print(f"  隐压    : {s['latent_pressure']:.2f}")
+    print(f"  记忆痕迹: {s['memory_count']} / 64")
+    if s["trauma"]:
+        traumas = ", ".join(f"{k}:{v:.2f}" for k, v in s["trauma"].items())
+        print(f"  创伤    : {traumas}")
+    else:
+        print(f"  创伤    : 无")
+    print(f"  {'─'*50}")
+    emoticon = {
+        "喜悦": "😊", "愤怒": "😡", "恐惧": "😨",
+        "信任": "🤝", "疏离": "🛡️", "张力": "⚡", "愧疚": "😔"
     }
+    for dim in ["喜悦", "愤怒", "恐惧", "信任", "疏离", "张力", "愧疚"]:
+        v = f[dim]
+        print(f"  {emoticon[dim]} {bar(v):20s} {v:.3f}")
+    print(f"{'='*60}")
 
-    # --------------------------
-    # 审计引擎配置（示例）
-    # --------------------------
-    audit_config = AuditConfigLoader.load_from_dict({
-        "allowed_stages": ["production", "test", "development"],
-        "disclaimer": "This is an AI industry consultant; all suggestions are for reference only.",
-        "custom_fields": {"department": "AI Governance Center"}
-    })
 
-    account = ResponsibilityAccount(
-        organization="Enterprise Intelligence Lab",
-        role="Compliance & Quality Controller",
-        stage="test"
-    )
+# ════════════════════════════════════════════════════════════════
+# 4. 三阶段演示
+# ════════════════════════════════════════════════════════════════
 
-    audit_engine = CognitiveAuditEngine(account, audit_config)
+if __name__ == "__main__":
+    print("\n" + "=" * 70)
+    print("  苏瑾 (Su Jin) — 高级企业顾问 拟人化引擎演示")
+    print("  引擎: SPL Pure Core V7.3")
+    print("=" * 70)
 
-    # 注册合规审计插件（示例）
-    def compliance_check(ctx):
-        resp = ctx["model_response"]
-        if "confidential" in resp.lower() or "inside info" in resp.lower():
-            return {"passed": False, "alert": "Security Risk: Involves sensitive information"}
-        return {"passed": True}
+    # ── 创建苏瑾 ──
+    sujin = SujinAgent(name="Su Jin", age=32)
+    print_state(sujin, "初始状态（刚上线）")
 
-    audit_engine.register_plugin(AuditPlugin("Compliance Check", compliance_check))
+    # ════════════════════════════════════════════════════════════
+    # Phase 1: 初始合作（低信任）
+    #   场景：刚接到一个新客户，对方是大型企业。
+    #   苏瑾的态度：严谨专业，按流程办事，不做额外承诺。
+    # ════════════════════════════════════════════════════════════
+    print("\n")
+    print("=" * 70)
+    print("  Phase 1: 初始合作（低信任 — 严谨专业模式）")
+    print("=" * 70)
 
-    # --------------------------
-    # 主控制器
-    # --------------------------
-    agent = AuditableAgent(su_jin, audit_engine)
+    sujin.set_affinity(0.12)
+    print("\n  [事件] 客户初次会议，礼貌性夸奖苏瑾的履历...")
+    sujin.perceive("compliment", intensity=0.6)
+    print_state(sujin, "被礼貌性夸奖后")
 
-    # ========== 模拟测试流程 ==========
-    print("=== Phase 1: Initial Cooperation (Low Trust) ===")
-    agent.character.set_affinity(0.1)
-    print(agent.get_system_prompt())
-    print("\n" + "="*70 + "\n")
+    print("\n  [事件] 2 小时后，客户在邮件中质疑某个数据来源...")
+    sujin.idle(hours=2.0)
+    sujin.perceive("criticism", intensity=0.7)
+    print_state(sujin, "被质疑专业能力后")
 
-    print("=== Phase 2: Deep Cooperation (High Trust, Low Energy) ===")
-    agent.character.set_affinity(0.75)
-    agent.character.energy = 20 # Fatigued after long negotiation
-    print(agent.get_system_prompt())
-    print("\n" + "="*70 + "\n")
+    print("\n  [事件] 高强度连续准备汇报材料 3 小时...")
+    sujin.perceive("high_pressure", intensity=0.8)
+    sujin.perceive("high_pressure", intensity=0.6)
+    sujin.perceive("high_pressure", intensity=0.7)
+    print_state(sujin, "高强度工作后")
 
-    print("=== Phase 3: After Trust Crisis (Trauma Triggered) ===")
-    agent.character.trigger_trauma("betrayal") # Trigger trauma logic: threshold raised
-    agent.character.set_affinity(0.6)
-    print(agent.get_system_prompt())
+    print("\n  [事件] 独自复盘，休息...")
+    sujin.idle(hours=2.0)
+    sujin.perceive("rest", intensity=1.0)
+    print_state(sujin, "休息恢复后")
+
+    # ── 查看系统提示词 ──
+    print("\n  ── Phase 1 系统提示词（供 LLM 使用） ──")
+    prompt_phase1 = sujin.get_system_prompt()
+    if len(prompt_phase1) > 800:
+        print(f"  {prompt_phase1[:800]}...")
+    else:
+        print(f"  {prompt_phase1}")
+    print()
+
+    # ════════════════════════════════════════════════════════════
+    # Phase 2: 深度合作（高信任，低能量）
+    #   场景：经过多次成功合作，客户与苏瑾建立了信任。
+    #        客户提出更大的合作框架，苏瑾进入深度共创模式。
+    #        但此时苏瑾已经连续工作了很长时间，能量很低。
+    # ════════════════════════════════════════════════════════════
+    print("\n")
+    print("=" * 70)
+    print("  Phase 2: 深度合作（高信任 + 低能量 — 深度共创模式）")
+    print("=" * 70)
+
+    # 模拟多个正面事件逐步建立信任
+    print("\n  [事件] 信任建立阶段：客户续约 3 年...")
+    sujin.perceive("trust_signal", intensity=0.8)
+    print_state(sujin, "续约信号")
+
+    print("\n  [事件] 客户向同行推荐苏瑾...")
+    sujin.idle(hours=48.0)  # 间隔时间推进
+    sujin.perceive("trust_signal", intensity=0.7)
+    print_state(sujin, "被推荐后")
+
+    print("\n  [事件] 客户在内部会议中公开赞扬苏瑾的贡献...")
+    sujin.perceive("compliment", intensity=1.0)
+    print_state(sujin, "公开赞扬")
+
+    print("\n  [事件] 客户提出共创战略方案，邀请苏瑾共同承担风险...")
+    sujin.perceive("trust_signal", intensity=0.9)
+    print_state(sujin, "深度合作邀请")
+
+    # 设置高信任、低能量
+    sujin.set_affinity(0.78)
+    sujin.core.energy = 25.0
+    sujin.core.fatigue = 0.65
+    print_state(sujin, "深度合作阶段（高信任，但精力不足）")
+
+    print("\n  ── Phase 2 系统提示词 ──")
+    prompt_phase2 = sujin.get_system_prompt()
+    if len(prompt_phase2) > 800:
+        print(f"  {prompt_phase2[:800]}...")
+    else:
+        print(f"  {prompt_phase2}")
+    print()
+
+    # ════════════════════════════════════════════════════════════
+    # Phase 3: 信任危机（创伤触发 + 重建）
+    #   场景：客户的项目负责人将苏瑾的内部方案泄露给了竞争对手。
+    #        这是背叛。苏瑾的信任崩塌，进入设防状态。
+    #        然后观察她如何缓慢恢复。
+    # ════════════════════════════════════════════════════════════
+    print("\n")
+    print("=" * 70)
+    print("  Phase 3: 信任危机（背叛 → 创伤 → 设防 → 缓慢修复）")
+    print("=" * 70)
+
+    print("\n  [事件] 客户内部泄密，苏瑾的独家方案被竞争对手拿到...")
+    sujin.perceive("betrayal", intensity=1.0)
+    print_state(sujin, "背叛事件后（创伤 + 情绪剧烈波动）")
+
+    print("\n  ── Phase 3 系统提示词（创伤后） ──")
+    prompt_phase3 = sujin.get_system_prompt()
+    if len(prompt_phase3) > 800:
+        print(f"  {prompt_phase3[:800]}...")
+    else:
+        print(f"  {prompt_phase3}")
+    print()
+
+    print("\n  [事件] 客户紧急道歉并试图修复关系...")
+    sujin.perceive("compliment", intensity=0.8)
+    print_state(sujin, "道歉后（创伤仍在，信任恢复缓慢）")
+
+    print("\n  [事件] 苏瑾独自冷静了 12 小时...")
+    sujin.idle(hours=12.0)
+    sujin.perceive("alone", intensity=0.5)
+    print_state(sujin, "冷静后（情绪平复，但疏离感上升，创伤未消）")
+
+    print("\n  [事件] 3 天后，客户提出新的信任信号（签署保密协议+赔偿方案）...")
+    sujin.idle(hours=72.0)
+    sujin.perceive("trust_signal", intensity=0.9)
+    print_state(sujin, "收到新的信任信号后（创伤仍影响信任修复）")
+
+    print("\n  [事件] 后续持续的正常合作 7 天...")
+    sujin.idle(hours=168.0)
+    # 多次正向互动
+    for _ in range(3):
+        sujin.perceive("trust_signal", intensity=0.5)
+        sujin.perceive("compliment", intensity=0.4)
+        sujin.idle(hours=24.0)
+    print_state(sujin, "一周后（创伤愈合中，信任缓慢回升但永远回不到从前）")
+
+    # ════════════════════════════════════════════════════════════
+    # 最终总结
+    # ════════════════════════════════════════════════════════════
+    print("\n")
+    print("=" * 70)
+    print("  演示结束")
+    print("=" * 70)
+    print(f"""
+  苏瑾在这段经历中的完整心理轨迹：
+
+  Phase 1 (初始):
+    信任水平极低 → 严谨专业模式
+    对夸奖保留、对质疑敏感，符合顾问的第一反应。
+
+  Phase 2 (深度合作):
+    经过多次信任行为积累，进入深度共创赋能模式。
+    但高疲劳会降低正面情绪收益——"心有余而力不足"。
+
+  Phase 3 (信任危机):
+    背叛触发严重创伤，信任容量永久性下降（max_trust 被腐蚀）。
+    即使后续有修复行为，信任天花板已降低——
+    "受过伤的人，永远不会再像从前那样毫无保留地信任。"
+
+  核心引擎的拟人化体现：
+    · 创伤 → memory 中存储"背叛模式"，未来类似信号触发过激反应
+    · 信任腐蚀 → 对数式慢恢复，理论永远回不到 1.0
+    · 压抑反弹 → 高压力下表面的平静可能随时决堤
+    · 隐压雪崩 → 持续负面体验积累到临界点后全面崩溃
+""")
