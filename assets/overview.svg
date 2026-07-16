@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" preserveAspectRatio="xMidYMid meet" role="img" aria-label="overview">
+  <rect width="880" height="560" fill="#FAFAFA"/>
+<text x="440" y="56" text-anchor="middle" font-family="Helvetica Neue, Arial, sans-serif" font-size="30" font-weight="600" fill="#2C2C2C" letter-spacing="1">Psychology Subsystems</text>
+<line x1="360" y1="78" x2="520" y2="78" stroke="#D4AF37" stroke-width="2"/>
+<rect x="28" y="110" width="256" height="168" rx="14" fill="#FFFFFF" stroke="#C9A96E" stroke-width="1.5"/>
+<circle cx="62" cy="148" r="9" fill="#D4AF37"/>
+<text x="82" y="154" font-family="Helvetica Neue, Arial, sans-serif" font-size="19" font-weight="600" fill="#2C2C2C">Cognition</text>
+<text x="48" y="226" font-family="Helvetica Neue, Arial, sans-serif" font-size="14" fill="#8B8B8B">信念、意图与规划建模</text>
+<rect x="308" y="110" width="256" height="168" rx="14" fill="#FFFFFF" stroke="#C9A96E" stroke-width="1.5"/>
+<circle cx="342" cy="148" r="9" fill="#D4AF37"/>
+<text x="362" y="154" font-family="Helvetica Neue, Arial, sans-serif" font-size="19" font-weight="600" fill="#2C2C2C">Emotion</text>
+<text x="328" y="226" font-family="Helvetica Neue, Arial, sans-serif" font-size="14" fill="#8B8B8B">情绪状态与情感调制</text>
+<rect x="588" y="110" width="256" height="168" rx="14" fill="#FFFFFF" stroke="#C9A96E" stroke-width="1.5"/>
+<circle cx="622" cy="148" r="9" fill="#D4AF37"/>
+<text x="642" y="154" font-family="Helvetica Neue, Arial, sans-serif" font-size="19" font-weight="600" fill="#2C2C2C">Motivation</text>
+<text x="608" y="226" font-family="Helvetica Neue, Arial, sans-serif" font-size="14" fill="#8B8B8B">目标驱动与价值权重</text>
+<rect x="28" y="306" width="256" height="168" rx="14" fill="#FFFFFF" stroke="#C9A96E" stroke-width="1.5"/>
+<circle cx="62" cy="344" r="9" fill="#D4AF37"/>
+<text x="82" y="350" font-family="Helvetica Neue, Arial, sans-serif" font-size="19" font-weight="600" fill="#2C2C2C">Social</text>
+<text x="48" y="422" font-family="Helvetica Neue, Arial, sans-serif" font-size="14" fill="#8B8B8B">社会关系与角色认知</text>
+<rect x="308" y="306" width="256" height="168" rx="14" fill="#FFFFFF" stroke="#C9A96E" stroke-width="1.5"/>
+<circle cx="342" cy="344" r="9" fill="#D4AF37"/>
+<text x="362" y="350" font-family="Helvetica Neue, Arial, sans-serif" font-size="19" font-weight="600" fill="#2C2C2C">Memory</text>
+<text x="328" y="422" font-family="Helvetica Neue, Arial, sans-serif" font-size="14" fill="#8B8B8B">情景与语义长期记忆</text>
+<rect x="588" y="306" width="256" height="168" rx="14" fill="#FFFFFF" stroke="#C9A96E" stroke-width="1.5"/>
+<circle cx="622" cy="344" r="9" fill="#D4AF37"/>
+<text x="642" y="350" font-family="Helvetica Neue, Arial, sans-serif" font-size="19" font-weight="600" fill="#2C2C2C">Persona</text>
+<text x="608" y="422" font-family="Helvetica Neue, Arial, sans-serif" font-size="14" fill="#8B8B8B">跨会话一致人格内核</text>
+
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FAFAFA"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C9A96E"/>
+      <stop offset="0.5" stop-color="#D4AF37"/>
+      <stop offset="1" stop-color="#C9A96E"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="520" fill="url(#bg)"/>
+  <circle cx="56" cy="56" r="5" fill="#D4AF37"/>
+  <circle cx="1544" cy="56" r="5" fill="#D4AF37"/>
+  <circle cx="56" cy="464" r="5" fill="#D4AF37"/>
+  <circle cx="1544" cy="464" r="5" fill="#D4AF37"/>
+  <text x="56" y="48" font-family="Helvetica Neue, Arial, sans-serif" font-size="20" font-weight="600" fill="#C9A96E" letter-spacing="6">NOHN AI</text>
+<text x="800" y="218" text-anchor="middle" font-family="Helvetica Neue, Arial, sans-serif" font-size="60" font-weight="600" fill="#2C2C2C" letter-spacing="2">ANTHROPOMORPHIC</text>
+<text x="800" y="282" text-anchor="middle" font-family="Helvetica Neue, Arial, sans-serif" font-size="60" font-weight="600" fill="#2C2C2C" letter-spacing="2">AGENT ENGINE</text>
+
+  <line x1="640" y1="312" x2="960" y2="312" stroke="url(#gold)" stroke-width="2"/>
+  <text x="800" y="346" text-anchor="middle" font-family="Helvetica Neue, Arial, sans-serif" font-size="26" font-weight="500" fill="#C9A96E" letter-spacing="3">Anthropomorphic Psychology · SPL Pure Core V8.0</text>
+</svg>

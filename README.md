@@ -1,123 +1,45 @@
 <p align="center">
-  <em>The soul does not exist. The mind is not mysterious.</em>
+  <img src="assets/banner.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-V8.0-D4AF37?style=flat-square" alt="version">
-  <img src="https://img.shields.io/badge/engine-deterministic-2C2C2C?style=flat-square" alt="deterministic">
-  <img src="https://img.shields.io/badge/memory-bounded(O(1))-2C2C2C?style=flat-square" alt="memory">
-  <img src="https://img.shields.io/badge/python-pure-2C2C2C?style=flat-square" alt="python">
+  ![agent](https://img.shields.io/badge/agent-D4AF37?style=flat-square)  ![psychology](https://img.shields.io/badge/psychology-D4AF37?style=flat-square)  ![spl-v8](https://img.shields.io/badge/spl-v8-D4AF37?style=flat-square)
 </p>
 
----
+<blockquote align="center">
+  <em>Anthropomorphic Psychology · SPL Pure Core V8.0</em>
+</blockquote>
 
-&nbsp;
+<div style="max-width:880px;margin:0 auto;padding:0 16px">
 
-## ✦ SPL Pure Core V8.0
+## ✦ About
 
-A **deterministic, semantics-free anthropomorphic psychology engine** — the universal mental architecture every human shares, separated from any particular character's "soul."
+<p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE 是基于 SPL Pure Core V8.0 的拟人心理学引擎，将认知、情绪、动机与社会性建模为可组合的子系统。它让 AI 代理具备拟人化的内在状态与一致人格，从而在长期交互中保持行为连贯与情感可信。</p>
 
-The core simulates emotional inertia, trauma imprinting, memory reconsolidation, suppression-rebound, trust erosion — **without knowing what an "insult" or "compliment" is.**
+<p align="center">
+  <img src="assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
+</p>
 
-&nbsp;
+</div>
 
-## ✦ Universal Psychological Architecture
-
-```mermaid
-graph TD
-    subgraph "SPL Pure Core V8.0"
-        direction TB
-        IV(("Interoceptive<br/>Vector")):::input --> FC(("Fluid<br/>Computation")):::core
-        FC --> MO(("Mood<br/>Layer")):::layer
-        FC --> SE(("Self<br/>Esteem")):::layer
-        FC --> AN(("Anticipation<br/>System")):::layer
-        FC --> CD(("Cognitive<br/>Dissonance")):::layer
-        FC --> DH(("Defense<br/>Hierarchy")):::layer
-        FC --> SD(("Sleep /<br/>Dream")):::layer
-        MO --> OUT(("Snapshot")):::output
-        SE --> OUT
-        AN --> OUT
-        CD --> OUT
-        DH --> OUT
-        SD --> OUT
-
-        subgraph "Foundations (V7)"
-            TM(("Trauma<br/>Nodes")):::foundation
-            MR(("Memory<br/>Reconsolidation")):::foundation
-            EF(("Ebbinghaus<br/>Forgetting")):::foundation
-            TE(("Trust<br/>Erosion")):::foundation
-        end
-    end
-
-    classDef input fill:#FAFAFA,stroke:#D4AF37,stroke-width:1px,color:#2C2C2C
-    classDef core fill:#F5F0E6,stroke:#C9A96E,stroke-width:2px,color:#2C2C2C
-    classDef layer fill:#FAFAFA,stroke:#B8B8B8,stroke-width:1px,color:#2C2C2C
-    classDef output fill:#FAFAFA,stroke:#D4AF37,stroke-width:1px,color:#2C2C2C
-    classDef foundation fill:#FAFAFA,stroke:#E0E0E0,stroke-width:0.5px,color:#8B8B8B
-```
-
-&nbsp;
-
-## ✦ V8.0 Subsystems
-
-| Subsystem | Model |
-|-----------|-------|
-| **8-dimension Fluid Field** | Joy · Anger · Fear · Trust · Alienation · Tension · Guilt · Shame |
-| **Mood Layer** | Slow background affect (~1h half-life), modulates appraisal gain |
-| **Self-Esteem** | ∈ [0,1]; low → internalizes failure, amplifies threat |
-| **Sleep / Dream** | Energy recovery + emotional charge decay + fear extinction |
-| **Anticipation** | Future hope/threat → fulfillment/volation → surprise/disappointment |
-| **Cognitive Dissonance** | Belief-behavior conflict → tension → rationalization |
-| **Defense Hierarchy** | Denial → Rationalization → Repression (escalating under load) |
-
-&nbsp;
+<p align="center">— ✦ —</p>
 
 ## ✦ Quick Start
 
-```python
-from SPL_anthropic_engine import SPLPureCoreV7_3
-
-core = SPLPureCoreV7_3(psychological_resilience=0.4)
-
-# Inject interoceptive vector (semantics-free)
-core.process_vector({"threat": 0.5, "belonging": -0.6, "fatigue": 0.1}, intensity=1.0)
-
-# Set anticipation
-core.expect("sign_contract", valence=0.6, confidence=0.7)
-
-# Sleep with dream processing
-core.sleep(hours=8)
-
-# Psychological snapshot
-snap = core.snapshot()
-```
-
 ```bash
-# Full narrative demo
-python sujin-demo
+git clone git@github.com:NOHN-AI/ANTHROPOMORPHIC-AGENT-ENGINE.git
+cd ANTHROPOMORPHIC-AGENT-ENGINE
+pip install -r requirements.txt
+python run.py
 ```
 
-&nbsp;
-
-## ✦ Engineering Properties
-
-> **Deterministic** · **Bounded memory** (64 traces, O(1)) · **Pure Python** · **Thread-safe** · **Serializable**
-
-&nbsp;
-
-## ✦ Use Cases
-
-> Game NPCs · Digital Humans · Psychological Simulation · Affective Computing · Interactive Storytelling
-
-&nbsp;
-
----
+<p align="center">— ✦ —</p>
 
 <p align="center">
-  <a href="https://nohn-ai.github.io/Anthropomorphic-Agent-Engine/">GitHub Pages Demo</a>
+  <a href="https://github.com/NOHN-AI">NOHN-AI</a>
+  &nbsp;·&nbsp;
+  <a href="https://www.nohnlins.com/">nohnlins.com</a>
   &nbsp;·&nbsp;
   <a href="mailto:ai@nohnlins.com">ai@nohnlins.com</a>
 </p>
-<p align="center">
-  <sub>© 2026 Shanghai Linming Junhua &amp; NOHN AI Technology · All Rights Reserved</sub>
-</p>
+<p align="center"><sub>NOHN AI · ANTHROPOMORPHIC-AGENT-ENGINE</sub></p>
