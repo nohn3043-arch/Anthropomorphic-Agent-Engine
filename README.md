@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
+  <img src="banner.png" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
 </p>
 
 <p align="center">
