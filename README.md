@@ -27,8 +27,8 @@ These are **not** character self‑settings — they are the shared mental struc
 
 | Subsystem | What It Models |
 |---|---|
-| 8‑dimension fluid field | 喜悦 · 愤怒 · 恐惧 · 信任 · 疏离 · 张力 · 愧疚 · 羞耻 — relax toward dynamic targets with adaptive viscosity |
-| Mood layer | Slow background affect (愉悦 / 紧张 / 精力), ~1h half‑life, continuously modulates appraisal gain |
+| 8‑dimension fluid field | joy · anger · fear · trust · detachment · tension · guilt · shame — relax toward dynamic targets with adaptive viscosity |
+| Mood layer | Slow background affect (pleasure / tension / energy), ~1h half‑life, continuously modulates appraisal gain |
 | Self‑esteem | `self_esteem ∈ [0,1]`; low esteem internalizes failure & amplifies threat (attribution bias) |
 | Sleep / dream | `sleep(hours)` recovers energy **and** decays emotional charge / fear extinction in "dreams" |
 | Anticipation | `expect()` sets future hope/threat; fulfillment → surprise, violation → disappointment |
@@ -77,7 +77,7 @@ feature/                  # Self-setting templates for orgs/governments:
   bias module.py          #   BiasEngine (cognitive biases)
   Identity module.py      #   IdentityEngine (role conflicts)
   value module.py         #   ValueEngine (value weighting)
-  Goal module.py          #   GoalEngine (goal受阻/达成 -> emotion)
+  Goal module.py          #   GoalEngine (goal blocked/achieved -> emotion)
 docs/index.html           # GitHub Pages intro site (this repo's /docs)
 ```
 
