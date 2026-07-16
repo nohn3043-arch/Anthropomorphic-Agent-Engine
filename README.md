@@ -3,7 +3,9 @@
 </p>
 
 <p align="center">
-  ![agent](https://img.shields.io/badge/agent-D4AF37?style=flat-square)  ![psychology](https://img.shields.io/badge/psychology-D4AF37?style=flat-square)  ![spl-v8](https://img.shields.io/badge/spl-v8-D4AF37?style=flat-square)
+  <img src="https://img.shields.io/badge/agent-D4AF37?style=flat-square" alt="agent">
+  <img src="https://img.shields.io/badge/psychology-D4AF37?style=flat-square" alt="psychology">
+  <img src="https://img.shields.io/badge/spl-v8-D4AF37?style=flat-square" alt="spl-v8">
 </p>
 
 <blockquote align="center">
