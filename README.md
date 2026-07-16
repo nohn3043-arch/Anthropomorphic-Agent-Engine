@@ -129,13 +129,12 @@ This repository is mirrored to two remotes:
 | Remote | URL |
 |---|---|
 | `github` | https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine.git |
-| `gitee`  | https://gitee.com/lin-mingjun-hua_0/Anthropomorphic-Agent-Engine.git |
+| `gitee`  | https://e.gitee.com/nohn-ecosystem/Anthropomorphic-Agent-Engine.git |
 
 Push to both:
 
 ```bash
-git push github main
-git push gitee  main
+git push origin main
 ```
 
 ### GitHub Pages (intro site)
