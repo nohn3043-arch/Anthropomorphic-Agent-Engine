@@ -102,6 +102,23 @@ print(core.snapshot())
 
 ---
 
+## Install from PyPI
+
+The engine is also published on PyPI as [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/):
+
+```bash
+pip install spl-agent-engine==0.1.0
+```
+
+```python
+from spl_agent_engine import SPLPureCoreV7_3
+core = SPLPureCoreV7_3()
+core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
+print(core.snapshot())
+```
+
+---
+
 ## Engineering Properties
 
 · Deterministic — same input, same output.
