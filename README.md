@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://ai-ug9.pages.dev/banner.png" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
+  <img src="https://sourceforge.net/p/your-soulmate/git/ci/main/tree/banner.png?format=raw" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 <p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE is an anthropomorphic psychology engine built on SPL Pure Core V8.0. It models cognition, emotion, motivation, and sociality as composable subsystems, giving AI agents anthropomorphic internal states and consistent personalities for coherent, emotionally credible behavior in long-term interactions.</p>
 
 <p align="center">
-  <img src="https://ai-ug9.pages.dev/assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
+  <img src="https://sourceforge.net/p/your-soulmate/git/ci/main/tree/assets/overview.svg?format=raw" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
 </p>
 
 </div>
