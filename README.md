@@ -202,6 +202,6 @@ This repository is **not open-source**. It uses a dual-track model: free for ind
   &nbsp;·&nbsp;
   <a href="https://www.nohnlins.com/">nohnlins.com</a>
   &nbsp;·&nbsp;
-  <a href="mailto:ai@nohnlins.com">ai@nohnlins.com</a>
+  <a href="mailto:lin@secondai.top">lin@secondai.top</a>
 </p>
 <p align="center"><sub>NOHN AI · ANTHROPOMORPHIC-AGENT-ENGINE</sub></p>
