@@ -108,6 +108,19 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 └── docs/index.html
 ```
 
+## ✦ Live Demo
+
+<p align="center">
+  <a href="https://your-soulmate.pages.dev/">
+    <img src="https://img.shields.io/badge/Live%20Demo-your--soulmate.pages.dev-D4AF37?style=for-the-badge" alt="Live Demo">
+  </a>
+</p>
+
+Try the interactive demo: **<https://your-soulmate.pages.dev/>**
+
+<p align="center">— ✦ —</p>
+
+
 ## ✦ License & Authorization
 
 This repository is **not open-source**. It uses a dual-track model: free for individual non-commercial research, paid commercial authorization required for government / enterprise. See [LICENSE](./LICENSE) for the full terms — licensor and governing law are determined by the user's location.
