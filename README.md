@@ -189,6 +189,19 @@ The engine follows a modular architecture where each subsystem can be used indep
 
 <p align="center">— ✦ —</p>
 
+## ✦ Live Demo
+
+<p align="center">
+  <a href="https://your-soulmate.pages.dev/">
+    <img src="https://img.shields.io/badge/Live%20Demo-your--soulmate.pages.dev-D4AF37?style=for-the-badge" alt="Live Demo">
+  </a>
+</p>
+
+Try the interactive demo: **<https://your-soulmate.pages.dev/>**
+
+<p align="center">— ✦ —</p>
+
+
 ## ✦ License & Authorization
 
 <div style="max-width:880px;margin:0 auto;padding:0 16px">
