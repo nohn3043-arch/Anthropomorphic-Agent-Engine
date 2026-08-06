@@ -2,6 +2,8 @@
 
 # ANTHROPOMORPHIC-AGENT-ENGINE
 
+基于 SPL Pure Core V8.0 的人形心理学引擎
+
 <p align="center">
   <img src="banner.png" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
 </p>
@@ -16,36 +18,51 @@
   <em>Anthropomorphic Psychology · SPL Pure Core V8.0</em>
 </blockquote>
 
-<div style="max-width:880px;margin:0 auto;padding:0 16px">
+---
 
-## ✦ About
+## ✦ 项目简介
 
-ANTHROPOMORPHIC-AGENT-ENGINE is an anthropomorphic psychology engine built on SPL Pure Core V8.0. It models cognition, emotion, motivation, and sociality as composable subsystems, giving AI agents anthropomorphic internal states and consistent personalities for coherent, emotionally credible behavior in long-term interactions.
+ANTHROPOMORPHIC-AGENT-ENGINE 是一个基于 SPL Pure Core V8.0 的人形心理学引擎。它将认知、情感、动机和社会性建模为可组合的子系统，为 AI 智能体赋予类人的内在状态和一致的人格特征，从而在长期交互中实现情感上可信、行为上连贯的表现。
+
+该引擎将通用的人类心理架构建模为确定性、连续状态的子系统——无需 LLM，无随机性，支持完全回放：
+
+- **八维情感流体** — 喜悦、愤怒、恐惧、信任、疏离、张力、愧疚、羞耻，每个都是具有自身目标和基线的连续状态
+- **创伤与记忆** — 创伤节点、记忆再巩固、艾宾浩斯式遗忘、压抑-反弹及隐式压力雪崩
+- **信任与关系** — 信任容量腐蚀（慢性冷漠对待下 `max_trust` 会衰减）
+- **心智代谢** — 唤醒-激活、动态粘度、心理时间、能量-疲劳代谢，以及用于测试和回放的虚拟时钟
 
 <p align="center">
   <img src="assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
 </p>
 
-</div>
+---
 
-<p align="center">— ✦ —</p>
+## ✦ 快速开始
 
-## ✦ Quick Start
+### 环境要求
+
+- Python 3.8 或更高版本
+- 标准库依赖，无需安装额外包
+
+### 安装方式
+
+#### 方式一：直接克隆运行
 
 ```bash
 git clone git@github.com:NOHN-AI/ANTHROPOMORPHIC-AGENT-ENGINE.git
 cd ANTHROPOMORPHIC-AGENT-ENGINE
-# Pure Python ≥3.8 — standard library only, nothing to install
-python "SPL-anthropic-engine.py"   # run the engine / bundled demo
+python "SPL-anthropic-engine.py"   # 运行引擎 / 捆绑演示
 ```
 
-### Install from PyPI
+#### 方式二：从 PyPI 安装
 
-The engine is also published on PyPI as [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/):
+该引擎也已发布到 PyPI，名称为 [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/)：
 
 ```bash
 pip install spl-agent-engine==0.1.0
 ```
+
+安装后可使用以下代码快速测试：
 
 ```python
 from spl_agent_engine import SPLPureCoreV7_3
@@ -54,42 +71,42 @@ core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
 print(core.snapshot())
 ```
 
-<p align="center">— ✦ —</p>
+---
 
-## ✦ What's Inside — SPL Pure Core V8.0
+## ✦ V8.0 扩展功能
 
-<div style="max-width:880px;margin:0 auto;padding:0 16px">
+在 V8.0 版本中，引擎新增了以下高级功能：
 
-The engine models a universal human mental architecture as deterministic, continuous-state subsystems — no LLM, no randomness, fully replayable:
+- **慢变量情绪层** — 超越即时情感波动的长期情绪趋势
+- **羞耻维度** — 与愧疚区分开的独立羞耻情感维度
+- **自尊动态** — 自尊心的变化与调节机制
+- **睡眠/梦境处理** — REM 巩固、恐惧消退与睡眠债务
+- **预期系统** — 希望、焦虑、失望等预期情感
+- **认知失调** — 认知冲突的检测与处理
+- **扩展防御机制** — 否认、合理化、置换等心理防御手段
 
-- **8-dimensional emotion fluid** — 喜悦 / 愤怒 / 恐惧 / 信任 / 疏离 / 张力 / 愧疚 / 羞耻, each a continuous state with its own target and baseline.
-- **Trauma & memory** — trauma nodes, memory reconsolidation, Ebbinghaus-style forgetting, repression–rebound and the implicit-pressure avalanche.
-- **Trust & relationships** — trust-capacity corrosion (`max_trust` decays under chronic cold treatment).
-- **Metabolism of mind** — excitation–arousal, dynamic viscosity, psychological time, energy–fatigue metabolism, and a virtual clock for tests and replay.
-- **V8.0 extensions** — a slow-variable *mood* layer, a *shame* dimension distinct from guilt, self-esteem dynamics, sleep/dream processing (REM consolidation + fear extinction + sleep debt), an *anticipation* system (hope / anxiety / disappointment), cognitive dissonance, and extended defense mechanisms (denial / rationalization / displacement).
+---
 
-</div>
+## ✦ 可组合模块
 
-## ✦ Composable Modules
+引擎采用模块化设计，各子系统可独立使用或组合使用：
 
-<div style="max-width:880px;margin:0 auto;padding:0 16px">
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| 叙事映射器 | `SPL-anthropic-engine.py` | 外部可替换的人格层（乐观/偏执/厌世），将事件转换为内感受向量 |
+| 身份引擎 | `feature/Identity module.py` | 多身份模型；身份冲突注入持续的基线张力 |
+| 目标引擎 | `feature/Goal module.py` | 可组合的目标管理，跟踪重要性、紧迫性和难度 |
+| 价值引擎 | `feature/value module.py` | 核心价值评估和情感放大系统 |
+| 偏误引擎 | `feature/bias module.py` | 认知偏误配置（乐观、偏执、抑郁），调节感知和记忆 |
+| 世界模型 | `feature/world module.py` | 世界先验模型（乐观、悲观、创伤），影响期望和解释 |
 
-| Module | File | Responsibility |
-|---|---|---|
-| Narrative mapper | `SPL-anthropic-engine.py` | External, user-swappable persona layer (optimism / paranoia / misanthropy) that translates events into interoceptive vectors. |
-| Identity engine | `feature/Identity module.py` | Multi-identity model; identity conflict injects sustained baseline tension. |
-| Goal engine | `feature/Goal module.py` | Composable goal management with importance, urgency, and difficulty tracking. |
-| Value engine | `feature/value module.py` | Core value evaluation and emotional amplification system. |
-| Bias engine | `feature/bias module.py` | Cognitive bias profiles (optimistic, paranoid, depressive) that modulate perception and memory. |
-| World model | `feature/world module.py` | World prior models (optimistic, pessimistic, traumatized) influencing expectations and interpretations. |
+---
 
-</div>
+## ✦ 使用方法
 
-## ✦ Usage
+### 核心 API
 
-<div style="max-width:880px;margin:0 auto;padding:0 16px">
-
-The engine file uses a hyphenated name by design, so load it directly (or run it as a script):
+引擎文件使用带连字符的名称设计，可直接加载（或作为脚本运行）：
 
 ```python
 import importlib.util
@@ -97,118 +114,117 @@ spec = importlib.util.spec_from_file_location("spl_core", "SPL-anthropic-engine.
 spl = importlib.util.module_from_spec(spec); spec.loader.exec_module(spl)
 
 core = spl.SPLPureCoreV7_3()
-# An external event is mapped to an interoceptive vector by the (swappable) persona layer
+# 外部事件通过（可替换的）人格层映射为内感受向量
 vec = spl.NarrativeMapper.map_event("insult", intensity=1.0)
-# feed `vec` into `core` to evolve emotion / trust / trauma state over time
+# 将 `vec` 传入 `core` 以演化情感/信任/创伤状态
 ```
 
-### Core API Reference
+#### SPLPureCoreV7_3 — 主引擎类
 
-**SPLPureCoreV7_3** — Main engine class
+| 方法 | 说明 |
+|------|------|
+| `process_vector(interoceptive_vec, delta_time)` | 处理内感受向量并推进时间 |
+| `snapshot()` | 获取所有子系统的当前状态 |
 
-- `process_vector(interoceptive_vec, delta_time)` — Process an interoceptive vector and advance time
-- `snapshot()` — Get the current state of all subsystems
+#### NarrativeMapper — 事件向量化
 
-**NarrativeMapper** — Event to vector translation
+| 方法 | 说明 |
+|------|------|
+| `map_event(event: str, intensity: float) -> Dict[str, float]` | 将自然语言事件映射为内感受向量 |
 
-- `map_event(event: str, intensity: float) -> Dict[str, float]` — Map natural language events to interoceptive vectors
-
-### Module Usage Examples
+### 模块使用示例
 
 ```python
-# Goal Engine
+# 目标引擎
 from feature.Goal module import sujin_goals
 goal_engine = sujin_goals()
 goal_engine.add_goal("complete_task", importance=0.8, urgency=0.6)
 primary = goal_engine.get_primary_goal()
 
-# Identity Engine  
+# 身份引擎  
 from feature.Identity module import sujin_identity
 identity_engine = sujin_identity()
 
-# Value Engine
+# 价值引擎
 from feature.value module import sujin_values
 value_engine = sujin_values()
 emotions = value_engine.evaluate_event("success")
 
-# Bias Profiles
+# 偏误配置
 from feature.bias module import paranoid_bias, optimistic_bias
 bias_engine = BiasEngine(profile=optimistic_bias())
 
-# World Models
+# 世界模型
 from feature.world import optimistic_world, pessimistic_world
 world = optimistic_world()
 ```
 
-</div>
+---
 
-## ✦ Project Structure
+## ✦ 项目结构
 
 ```
 ANTHROPOMORPHIC-AGENT-ENGINE/
-├── SPL-anthropic-engine.py       # Core engine + NarrativeMapper (main entry point)
-├── feature/                      # Composable psychological modules
-│   ├── Goal module.py            # Goal management and motivation system
-│   ├── Identity module.py        # Multi-identity and identity conflict handling
-│   ├── bias module.py            # Cognitive bias profiles and application
-│   ├── value module.py           # Core values and emotional amplification
-│   └── world module.py           # World model priors and expectations
-├── sujin-demo/                   # Reference demo assets
-├── assets/                       # Banner and overview diagrams
+├── SPL-anthropic-engine.py       # 核心引擎 + NarrativeMapper（主入口）
+├── feature/                      # 可组合心理学模块
+│   ├── Goal module.py            # 目标管理与动机系统
+│   ├── Identity module.py        # 多身份与身份冲突处理
+│   ├── bias module.py            # 认知偏误配置与应用
+│   ├── value module.py           # 核心价值与情感放大
+│   └── world module.py           # 世界模型先验与期望
+├── sujin-demo/                   # 参考演示资源
+├── assets/                       # 横幅和概览图
 │   ├── banner.svg
 │   └── overview.svg
-├── docs/
-│   └── index.html               # Interactive documentation
-├── spl_engine_demo.ipynb        # Jupyter notebook demo
+├── docs/                         # 交互式文档
+│   └── index.html
+├── spl_engine_demo.ipynb         # Jupyter Notebook 演示
 ├── IMDA_AI_Verify_Causal_Audit_Report.pdf
 ├── LICENSE
 └── README.md
 ```
 
-## ✦ Architecture Overview
+---
 
-The engine follows a modular architecture where each subsystem can be used independently or composed together:
+## ✦ 架构概述
 
-### Core Subsystems
+引擎遵循模块化架构，每个子系统都可以独立使用或组合在一起：
 
-1. **SPLPureCoreV7_3** — Central processing hub that orchestrates all subsystems, maintains continuous emotional states, and manages time evolution.
+### 核心子系统
 
-2. **NarrativeMapper** — Translates external events (natural language descriptions) into interoceptive vectors that the core engine can process.
+1. **SPLPureCoreV7_3** — 中央处理中枢，协调所有子系统，维护连续的情感状态，并管理时间演化
 
-3. **Goal Engine** — Manages agent goals with attributes like importance, urgency, difficulty, and dependencies. Provides conflict detection and emotion generation.
+2. **NarrativeMapper** — 将外部事件（自然语言描述）转换为内核可处理的内感受向量
 
-4. **Identity Engine** — Models multiple identities within an agent, handling identity conflicts that generate sustained psychological tension.
+3. **Goal Engine** — 管理智能体目标，包括重要性、紧迫性、难度和依赖项。提供冲突检测和情感生成
 
-5. **Value Engine** — Evaluates events against core values and amplifies emotional responses based on value relevance.
+4. **Identity Engine** — 建模智能体内的多身份，处理产生持续心理张力的身份冲突
 
-6. **Bias Engine** — Applies cognitive bias profiles to perception and memory, including paranoid, optimistic, and depressive biases.
+5. **Value Engine** — 根据核心价值评估事件，并根据价值相关性放大情感反应
 
-7. **World Model** — Represents the agent's expectations about the world, influencing how events are interpreted.
+6. **Bias Engine** — 应用认知偏误配置到感知和记忆，包括偏执、乐观和抑郁偏误
 
-</div>
+7. **World Model** — 表示智能体对世界的期望，影响事件的解释方式
 
-<p align="center">— ✦ —</p>
+---
 
-## ✦ Live Demo
+## ✦ 在线演示
 
 <p align="center">
   <a href="https://your-soulmate.pages.dev/">
-    <img src="https://img.shields.io/badge/Live%20Demo-your--soulmate.pages.dev-D4AF37?style=for-the-badge" alt="Live Demo">
+    <img src="https://img.shields.io/badge/在线演示-your--soulmate.pages.dev-D4AF37?style=for-the-badge" alt="Live Demo">
   </a>
 </p>
 
-Try the interactive demo: **<https://your-soulmate.pages.dev/>**
+体验交互式演示：**https://your-soulmate.pages.dev/**
 
-<p align="center">— ✦ —</p>
+---
 
+## ✦ 许可证与授权
 
-## ✦ License & Authorization
+本仓库**并非开源软件**。采用双轨模式：个人非商业研究免费使用，政府/企业商业使用需付费授权。完整条款请参阅 [LICENSE](./LICENSE) 文件——许可人和适用法律由用户所在地决定。
 
-<div style="max-width:880px;margin:0 auto;padding:0 16px">
-
-This repository is **not open-source**. It uses a dual-track model: free for individual non-commercial research, paid commercial authorization required for government / enterprise. See [LICENSE](./LICENSE) for the full terms — licensor and governing law are determined by the user's location.
-
-</div>
+---
 
 <p align="center">
   <a href="https://github.com/NOHN-AI">NOHN-AI</a>
