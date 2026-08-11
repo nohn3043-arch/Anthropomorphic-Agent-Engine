@@ -1,6 +1,0 @@
-{
-  "name": "SPL Psychological Agent Engine",
-  "description": "An interactive causal logic and psychological fluid simulation engine (SPL Core V8.0) that compiles and packages into a standard Chrome Extension.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

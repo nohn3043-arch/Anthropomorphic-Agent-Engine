@@ -1,9 +1,0 @@
-{
-  "appId": "com.nohnlins.characterstudio",
-  "appName": "Your Mirror",
-  "webDir": "dist",
-  "bundledWebRuntime": false,
-  "server": {
-    "androidScheme": "https"
-  }
-}

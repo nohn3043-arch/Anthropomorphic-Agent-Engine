@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Your Mirror</string>
-    <string name="title_activity_main">Your Mirror</string>
-    <string name="package_name">com.nohnlins.characterstudio</string>
-    <string name="custom_url_scheme">com.nohnlins.characterstudio</string>
-</resources>
