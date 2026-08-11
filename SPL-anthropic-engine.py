@@ -410,6 +410,7 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             "max_trust": self.max_trust,
             "suppression_load": self.suppression_load,
             "denial_load": self.denial_load,
+            "rationalization_load": self.rationalization_load,
             "latent_pressure": self.latent_pressure,
             "cognitive_dissonance": self.cognitive_dissonance,
             "sleep_debt": self.sleep_debt,
