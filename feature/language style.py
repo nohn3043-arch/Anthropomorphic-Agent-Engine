@@ -1,14 +1,21 @@
 # ================================================================
-# 语言风格渲染系统（Language Style Engine）—— 【自设模块】
+# 语言风格渲染系统（Language Style Engine）—— 【自设模块 / 指导说明】
 # ================================================================
 # 定位：MVC架构中的 View（视图层）/ Translator（翻译层）。
 # 作用：监听 SPL Core V8.0 的内部状态（流体、心境、防御机制），
 #      将其转化为结构化的语言学特征和 LLM 提示词指令。
-# 
+#
+# 【本模块定位为企业/政府接入的指导说明】
+#   模块不改写底层心理引擎，只把内部状态翻译成"角色该怎么说话"的文字指令。
+#   所有角色人格均由接入方【直接自设】（离散档位，无连续数学），
+#   企业/政府按角色设定填表即可，无需理解内部公式。
+#
 # 机制：
 # - 能量/疲劳决定话语的长短与语速（句长、省略号频率）。
 # - 压抑/否认机制决定防御性修辞（绝对否定词、辩解性连词）。
 # - 情绪流体（如羞耻、愤怒）决定语气温度与社交距离。
+# - 语言人格 = 接入方自设的【表达档位】（克制/回避/亲密/直接/对抗），
+#   决定内部状态如何被隐藏/扭曲后才出口（internal_state ≠ spoken_text）。
 # ================================================================
 
 from dataclasses import dataclass, field
@@ -16,35 +23,39 @@ from typing import Dict, Any, List, Optional
 
 
 # ================================================================
-# 【语言人格模块 Language Persona】—— 表达过滤层
+# 【语言人格模块 Language Persona】—— 表达过滤层（接入方自设）
 #
 # 核心原则：internal_state ≠ spoken_text
 #   心理状态（SPL Core 输出）必须先经过语言人格过滤，才能变成台词。
 #   一个控制欲强、情绪不外露的角色（如祁皇英），内心恐惧 0.8，
 #   不会说"我担心你"，而会说"不要再做这种无意义的冒险"。
 #
-# 分层：
-#   LanguagePersonaNode   → 人格：决定【为什么这么说】（过滤/意图）
-#   StyleProfile          → 风格：决定【怎么说】（句长/正式度/讽刺）
-#   render_style()        → 渲染：把过滤后的意图变成文字指令
+# 自设方式（企业/政府接入）：
+#   LanguagePersona   → 直接选【表达档位】(mode) + 是否启用沉默策略(silence_policy)
+#   StyleProfile      → 风格：决定【怎么说】（句长/正式度/讽刺，亦为静态自设）
+#   render_style()    → 渲染：把过滤后的意图变成文字指令
+# 注：本层不做连续数学，仅做轻量装配；动态部分只剩"高情绪+低能量→沉默"。
 # ================================================================
 
 @dataclass
-class LanguagePersonaNode:
+class LanguagePersona:
     """
-    角色的语言人格——决定"心理状态如何被隐藏/扭曲后表达"。
-    对偶维度已合并为单轴 [0,1]：0 端 / 1 端。
+    角色的语言人格——由接入方【直接自设】的离散档位，不做连续数学。
+    企业/政府按角色设定填下表即可，无需理解底层公式。
     """
-    # 情绪曝光度：0=全藏，1=全露（合并原 exposure+control）
-    emotional_reveal: float = 0.5
-    # 对抗倾向：0=回避闪躲，1=正面对抗（合并原 confrontation+avoidance）
-    confrontation: float = 0.5
-    # 权力姿态：0=服从，1=高压控制（合并原 dominance+submission）
-    dominance: float = 0.5
-    # 坦诚度：0=隐瞒，1=坦诚（合并原 honesty+concealment）
-    openness: float = 0.5
-    # 关系黏着：0=疏离独立，1=亲密依赖（合并原 intimacy+dependency）
-    attachment: float = 0.5
+    # 表达档位：直接选其一
+    #   "restrained"      克制冷峻，情绪锁死，高控制
+    #   "confrontational" 锋锐直白，正面挑明
+    #   "evasive"         闪躲回避，答非所问
+    #   "intimate"        松弛亲昵，卸下防备
+    #   "direct"          坦率直接，情绪如常表露（默认）
+    mode: str = "direct"
+
+    # 沉默策略：高情绪 + 低能量时，是否改以动作/旁白代替语言（不说话）
+    silence_policy: bool = False
+
+    # 沉默时的动作/旁白描写（自设；留空则使用通用默认）
+    silence_hint: str = ""
 
 
 @dataclass
@@ -81,8 +92,8 @@ class DefenseExpression:
     }
 
 
-# 人格表达模式 → 温度基调（人格层优先于情绪流体层）
-_PERSONA_TEMPERATURE: Dict[str, str] = {
+# 人格表达档位 → 温度基调（查表，无计算；接入方自设档位即查此表）
+PERSONA_TEMPERATURE: Dict[str, str] = {
     "restrained": "克制而冷峻，情绪被理性锁死。",
     "confrontational": "锋锐，直接挑明，不留余地。",
     "evasive": "闪躲，绕着主题走，答非所问。",
@@ -93,19 +104,24 @@ _PERSONA_TEMPERATURE: Dict[str, str] = {
 
 class LanguagePersonaEngine:
     """
-    语言人格引擎：把 SPL Core 快照过滤成"表达方式"，而非直接翻译成台词。
+    语言人格引擎：把 SPL Core 快照过滤成"表达方式"。
+    核心原则 internal_state ≠ spoken_text：心理状态先经人格过滤再变台词。
 
-    这是 internal_state ≠ spoken_text 的强制执行层：
-    - 高隐藏度 + 强情绪 → 台词拐弯（indirect_protection），甚至闭嘴改动作（silence）。
+    本引擎只做轻量装配（面向企业/政府自设）：
+    - 人格档位(mode)由接入方直接选定，查表得温度基调；
+    - 沉默(silence_policy)由接入方开关，仅在高情绪+低能量时动态触发；
+    - 防御载荷(denial/rationalization/suppression)动态覆盖真实意图。
+    不做连续数学（无 emotional_reveal/emotion_hidden 拟合公式）。
     """
-    def __init__(self, persona: LanguagePersonaNode = None,
+    def __init__(self, persona: "LanguagePersona" = None,
                  style: "StyleProfile" = None):
-        self.persona = persona or LanguagePersonaNode()
+        self.persona = persona or LanguagePersona()
         self.style = style or StyleProfile()
 
     def filter_expression(self, core_snapshot: Dict[str, Any]) -> ExpressionResult:
         """
         核心过滤逻辑：解析 V8.0 快照，决定角色"该怎么说、该不该说"。
+        除沉默触发外均为自设/查表，无数值拟合。
         """
         fluid = core_snapshot.get("fluid", {})
         fear = fluid.get("恐惧", 0.0)
@@ -117,56 +133,33 @@ class LanguagePersonaEngine:
         rationalization = core_snapshot.get("rationalization_load", 0.0)
         energy = core_snapshot.get("energy", 100.0)
 
-        # 1. 情绪隐藏度 = 心理强度 × (1 - 曝光度)
-        #    emotional_reveal 单轴已合并"外露度×控制力"，0=全藏 1=全露。
+        # 1. 表达档位：直接采用接入方自设值
+        mode = self.persona.mode
+
+        # 2. 沉默触发：自设策略 + 动态状态（高情绪 + 低能量 → 闭嘴改动作）
         peak_emotion = max(fear, anger, shame, tension)
-        self.emotion_hidden = peak_emotion * (1.0 - self.persona.emotional_reveal)
-
-        # 2. 沉默决策：低对抗(回避) + 低坦诚(隐瞒) + 强情绪 + 低能量 → 闭嘴改动作
-        should_silence = (
-            (self.persona.confrontation < 0.4 or self.persona.openness < 0.4)
-            and peak_emotion > 0.6
-            and energy < 60.0
-        )
+        should_silence = False
         silence_hint = ""
-        if should_silence:
-            # 用动作代替语言——情绪越强，动作越克制
-            if shame > 0.6:
-                silence_hint = "她没有回答。只是垂下眼帘，避开了目光。"
-            elif fear > 0.6:
-                silence_hint = "他没有回答。只是不动声色地退后半步。"
-            else:
-                silence_hint = "她没有回答。只是替他整理了一下衣袖。"
+        if self.persona.silence_policy and peak_emotion > 0.6 and energy < 60.0:
+            should_silence = True
+            silence_hint = self.persona.silence_hint or "（角色没有回答，以动作与旁白承载情绪。）"
 
-        # 3. 表达模式判定：权力 + 对抗 + 关系综合
-        if self.persona.dominance > 0.7 and self.persona.confrontation < 0.4:
-            expression_mode = "restrained"      # 高压控制，情绪不外露
-            speech_intention = "power_assertion"
-        elif (self.persona.confrontation > 0.7 and fear < 0.4):
-            expression_mode = "confrontational"
-            speech_intention = "direct_disclosure"
-        elif (self.persona.confrontation < 0.4 or shame > 0.5):
-            expression_mode = "evasive"
-            speech_intention = "indirect_protection"
-        elif (self.persona.attachment > 0.6
-              and self.persona.openness > 0.6):
-            expression_mode = "intimate"
-            speech_intention = "direct_disclosure"
-        else:
-            expression_mode = "direct"
-            speech_intention = "direct_disclosure"
+        # 3. 隐藏档位：克制/回避档位默认"绕着说"，其余直白
+        emotion_hidden = 1.0 if mode in ("restrained", "evasive") else 0.0
 
-        # 4. 防御载荷 → 修正真实意图（覆盖上面的默认判断）
+        # 4. 防御载荷 → 修正真实意图（覆盖默认 direct_disclosure）
         if denial > 0.5:
             speech_intention = DefenseExpression.UTTERANCE_TEMPLATES["denial"]["intention"]
         elif rationalization > 0.5:
             speech_intention = DefenseExpression.UTTERANCE_TEMPLATES["rationalization"]["intention"]
         elif suppression > 0.6:
             speech_intention = "concealment"
+        else:
+            speech_intention = "direct_disclosure"
 
         return ExpressionResult(
-            expression_mode=expression_mode,
-            emotion_hidden=round(min(1.0, self.emotion_hidden), 3),
+            expression_mode=mode,
+            emotion_hidden=emotion_hidden,
             speech_intention=speech_intention,
             should_silence=should_silence,
             silence_hint=silence_hint,
@@ -287,18 +280,15 @@ class LanguageStyleEngine:
                 punctuation_notes.append("无言以对，只有动作与环境描写。")
                 instructions.append("角色拒绝用语言回应，情绪由动作/沉默传达。")
 
-            # 隐藏度越高，措辞越需要"绕着说"
+            # 隐藏档位：克制/回避档位 → 绕着说；其余直白
             if hidden > 0.7:
                 sentence_length += " 极度克制，绕开情感直述，用客观事实/指令包装真实情绪。"
                 instructions.append("禁止直接说出真实情绪（如'我害怕/我想你'），用关心/指令的方式拐弯表达。")
-            elif hidden > 0.4:
-                sentence_length += " 有所保留，不完全坦白，留白。"
-                instructions.append("情绪可表露但需保留三分，不把心理活动全部说出。")
 
             # 人格模式直接决定温度基调与专属表演提示
             persona_mode = mode
             persona_active = True
-            tone_temperature = _PERSONA_TEMPERATURE.get(mode, "克制，维持基础的社交距离。")
+            tone_temperature = PERSONA_TEMPERATURE.get(mode, "克制，维持基础的社交距离。")
             if mode == "restrained":
                 instructions.append("用命令或公事公办的口吻，杜绝情绪化字眼。")
             elif mode == "evasive":
@@ -419,12 +409,10 @@ if __name__ == "__main__":
     # 示例2：语言人格过滤——祁皇英（高压控制型，情绪深藏）
     #   内心恐惧+羞耻很高，但表达时被完全过滤，甚至触发沉默。
     # ════════════════════════════════════════════════════════════
-    qihuangying_persona = LanguagePersonaNode(
-        emotional_reveal=0.05,   # 几乎不外露情绪（曝光度×控制力合并）
-        confrontation=0.3,       # 低对抗=高回避闪躲
-        dominance=0.9,           # 高压控制
-        openness=0.3,            # 低坦诚=高隐瞒
-        attachment=0.2,          # 疏离独立，极少亲密依赖
+    qihuangying_persona = LanguagePersona(
+        mode="restrained",                       # 高压控制型：直接选档，不调连续参数
+        silence_policy=True,                     # 高情绪+低能量时改以动作代替语言
+        silence_hint="她没有回答。只是垂下眼帘，避开了目光。",  # 自设沉默动作描写
     )
     qihuangying_style = StyleProfile(base_verbosity=0.4, formality=0.9, sarcasm_tendency=0.4)
 
