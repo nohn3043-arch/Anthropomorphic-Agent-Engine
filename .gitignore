@@ -1,3 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+android/build/
+android/.gradle/
+build/
+capacitor-cordova-android-plugins/
+
+# Secrets / signing (NEVER commit)
+*.keystore
+android/local.properties
+
+# Logs & temp
+*.log
+vite.out.log
+vite.err.log
+build-aab.log
+dev.bat
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Python
 .venv/
 __pycache__/
 *.pyc
