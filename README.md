@@ -49,7 +49,7 @@ ANTHROPOMORPHIC-AGENT-ENGINE 是一个基于 SPL Pure Core V8.0 的人形心理�
 #### 方式一：直接克隆运行
 
 ```bash
-git clone git@github.com:NOHN-AI/ANTHROPOMORPHIC-AGENT-ENGINE.git
+git clone git@github.com:nohn3043-arch/Anthropomorphic-Agent-Engine.git
 cd ANTHROPOMORPHIC-AGENT-ENGINE
 python "SPL-anthropic-engine.py"   # 运行引擎 / 捆绑演示
 ```
@@ -178,7 +178,6 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 │   └── overview.svg
 ├── docs/                         # 交互式文档
 │   └── index.html
-├── spl_engine_demo.ipynb         # Jupyter Notebook 演示
 ├── IMDA_AI_Verify_Causal_Audit_Report.pdf
 ├── LICENSE
 └── README.md
@@ -227,7 +226,7 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 ---
 
 <p align="center">
-  <a href="https://github.com/NOHN-AI">NOHN-AI</a>
+  <a href="https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine">nohn3043-arch/Anthropomorphic-Agent-Engine</a>
   &nbsp;·&nbsp;
   <a href="https://www.nohnlins.com/">nohnlins.com</a>
   &nbsp;·&nbsp;
