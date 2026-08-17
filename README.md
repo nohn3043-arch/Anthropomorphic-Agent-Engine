@@ -1,68 +1,50 @@
-
-
-# ANTHROPOMORPHIC-AGENT-ENGINE
-
-基于 SPL Pure Core V8.0 的人形心理学引擎
-
 <p align="center">
-  <img src="banner.png" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
+  <img src="assets/banner.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/agent--D4AF37?style=flat-square" alt="agent">
-  <img src="https://img.shields.io/badge/psychology--D4AF37?style=flat-square" alt="psychology">
-  <img src="https://img.shields.io/badge/spl-v8-D4AF37?style=flat-square" alt="spl-v8">
+  <img src="https://img.shields.io/badge/agent-D4AF37?style=flat-square" alt="agent">
+  <img src="https://img.shields.io/badge/psychology-D4AF37?style=flat-square" alt="psychology">
+  <img src="https://img.shields.io/badge/spl-v8.0-D4AF37?style=flat-square" alt="spl-v8.0">
 </p>
 
 <blockquote align="center">
-  <em>Anthropomorphic Psychology · SPL Pure Core V8.0</em>
+  <em>拟人心理 · SPL Pure Core V8.0</em>
 </blockquote>
 
----
+<div style="max-width:880px;margin:0 auto;padding:0 16px">
 
-## ✦ 项目简介
+## ✦ 关于
 
-ANTHROPOMORPHIC-AGENT-ENGINE 是一个基于 SPL Pure Core V8.0 的人形心理学引擎。它将认知、情感、动机和社会性建模为可组合的子系统，为 AI 智能体赋予类人的内在状态和一致的人格特征，从而在长期交互中实现情感上可信、行为上连贯的表现。
-
-该引擎将通用的人类心理架构建模为确定性、连续状态的子系统——无需 LLM，无随机性，支持完全回放：
-
-- **八维情感流体** — 喜悦、愤怒、恐惧、信任、疏离、张力、愧疚、羞耻，每个都是具有自身目标和基线的连续状态
-- **创伤与记忆** — 创伤节点、记忆再巩固、艾宾浩斯式遗忘、压抑-反弹及隐式压力雪崩
-- **信任与关系** — 信任容量腐蚀（慢性冷漠对待下 `max_trust` 会衰减）
-- **心智代谢** — 唤醒-激活、动态粘度、心理时间、能量-疲劳代谢，以及用于测试和回放的虚拟时钟
+<p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE 是基于 SPL Pure Core V8.0 的拟人心理引擎。它将认知、情绪、动机与社交建模为可组合子系统，赋予 AI 智能体拟人化的内在状态与一致人格，使其在长期互动中呈现自洽、可信、具情感可信度的行为。</p>
 
 <p align="center">
   <img src="assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
 </p>
 
----
+</div>
+
+<p align="center">— ✦ —</p>
 
 ## ✦ 快速开始
 
-### 环境要求
-
-- Python 3.8 或更高版本
-- 标准库依赖，无需安装额外包
-
-### 安装方式
-
-#### 方式一：直接克隆运行
-
 ```bash
-git clone git@github.com:nohn3043-arch/Anthropomorphic-Agent-Engine.git
-cd ANTHROPOMORPHIC-AGENT-ENGINE
-python "SPL-anthropic-engine.py"   # 运行引擎 / 捆绑演示
+# 主源：GitHub
+git clone https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine.git
+# 镜像：Gitee（本仓库）
+# git clone https://gitee.com/sjiun/Anthropomorphic-Agent-Engine.git
+cd Anthropomorphic-Agent-Engine
+# 纯 Python ≥3.8——仅标准库，无需安装
+python "SPL-anthropic-engine.py"   # 运行引擎 / 内置演示
 ```
 
-#### 方式二：从 PyPI 安装
+### 从 PyPI 安装
 
-该引擎也已发布到 PyPI，名称为 [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/)：
+引擎也已发布到 PyPI，包名 [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/)：
 
 ```bash
 pip install spl-agent-engine==0.1.0
 ```
-
-安装后可使用以下代码快速测试：
 
 ```python
 from spl_agent_engine import SPLPureCoreV7_3
@@ -71,42 +53,41 @@ core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
 print(core.snapshot())
 ```
 
----
+<p align="center">— ✦ —</p>
 
-## ✦ V8.0 扩展功能
+## ✦ 核心内容 — SPL Pure Core V8.0
 
-在 V8.0 版本中，引擎新增了以下高级功能：
+<div style="max-width:880px;margin:0 auto;padding:0 16px">
 
-- **慢变量情绪层** — 超越即时情感波动的长期情绪趋势
-- **羞耻维度** — 与愧疚区分开的独立羞耻情感维度
-- **自尊动态** — 自尊心的变化与调节机制
-- **睡眠/梦境处理** — REM 巩固、恐惧消退与睡眠债务
-- **预期系统** — 希望、焦虑、失望等预期情感
-- **认知失调** — 认知冲突的检测与处理
-- **扩展防御机制** — 否认、合理化、置换等心理防御手段
+引擎将通用人类心智架构建模为确定性、连续状态子系统——无 LLM、无随机性、完全可重放：
 
----
+- **8 维情绪流体**——喜悦 / 愤怒 / 恐惧 / 信任 / 疏离 / 张力 / 愧疚 / 羞耻，每维为带自身目标与基线的连续状态。
+- **创伤与记忆**——创伤节点、记忆再巩固、艾宾浩斯式遗忘、压抑–回弹与内隐压力雪崩。
+- **信任与关系**——信任容量腐蚀（慢性冷遇使 `max_trust` 衰减）。
+- **心智代谢**——兴奋–唤醒、动态黏度、心理时间、能量–疲劳代谢，以及用于测试与重放的虚拟时钟。
+- **V8.0 扩展**——慢变量*情绪*层、独立于愧疚的*羞耻*维度、自尊动力学、睡眠 / 梦境处理（REM 巩固 + 恐惧消退 + 睡眠债）、*预期*系统（希望 / 焦虑 / 失望）、认知失调，以及扩展防御机制（否认 / 合理化 / 置换）。
+
+</div>
 
 ## ✦ 可组合模块
 
-引擎采用模块化设计，各子系统可独立使用或组合使用：
+<div style="max-width:880px;margin:0 auto;padding:0 16px">
 
 | 模块 | 文件 | 职责 |
-|------|------|------|
-| 叙事映射器 | `SPL-anthropic-engine.py` | 外部可替换的人格层（乐观/偏执/厌世），将事件转换为内感受向量 |
-| 身份引擎 | `feature/Identity module.py` | 多身份模型；身份冲突注入持续的基线张力 |
-| 目标引擎 | `feature/Goal module.py` | 可组合的目标管理，跟踪重要性、紧迫性和难度 |
-| 价值引擎 | `feature/value module.py` | 核心价值评估和情感放大系统 |
-| 偏误引擎 | `feature/bias module.py` | 认知偏误配置（乐观、偏执、抑郁），调节感知和记忆 |
-| 世界模型 | `feature/world module.py` | 世界先验模型（乐观、悲观、创伤），影响期望和解释 |
+|---|---|---|
+| 叙事映射器 | `SPL-anthropic-engine.py` | 外部、可替换的人格层（乐观 / 偏执 / 厌世），将事件翻译为内感受向量。 |
+| 身份引擎 | `feature/Identity module.py` | 多身份模型；身份冲突注入持续基线张力。 |
+| 目标 / 价值 / 偏见 / 世界 | `feature/*.py` | 可组合驱力、估值、认知偏见与世界模型先验。 |
 
----
+</div>
 
-## ✦ 使用方法
+<p align="center">— ✦ —</p>
 
-### 核心 API
+## ✦ 使用
 
-引擎文件使用带连字符的名称设计，可直接加载（或作为脚本运行）：
+<div style="max-width:880px;margin:0 auto;padding:0 16px">
+
+引擎文件按设计使用连字符命名，直接加载（或作为脚本运行）：
 
 ```python
 import importlib.util
@@ -114,122 +95,68 @@ spec = importlib.util.spec_from_file_location("spl_core", "SPL-anthropic-engine.
 spl = importlib.util.module_from_spec(spec); spec.loader.exec_module(spl)
 
 core = spl.SPLPureCoreV7_3()
-# 外部事件通过（可替换的）人格层映射为内感受向量
+# 外部事件由（可替换的）人格层映射为内感受向量
 vec = spl.NarrativeMapper.map_event("insult", intensity=1.0)
-# 将 `vec` 传入 `core` 以演化情感/信任/创伤状态
+# 将 `vec` 馈入 `core`，随时间演化情绪 / 信任 / 创伤状态
 ```
 
-#### SPLPureCoreV7_3 — 主引擎类
+</div>
 
-| 方法 | 说明 |
-|------|------|
-| `process_vector(interoceptive_vec, delta_time)` | 处理内感受向量并推进时间 |
-| `snapshot()` | 获取所有子系统的当前状态 |
-
-#### NarrativeMapper — 事件向量化
-
-| 方法 | 说明 |
-|------|------|
-| `map_event(event: str, intensity: float) -> Dict[str, float]` | 将自然语言事件映射为内感受向量 |
-
-### 模块使用示例
-
-```python
-# 目标引擎
-from feature.Goal module import sujin_goals
-goal_engine = sujin_goals()
-goal_engine.add_goal("complete_task", importance=0.8, urgency=0.6)
-primary = goal_engine.get_primary_goal()
-
-# 身份引擎  
-from feature.Identity module import sujin_identity
-identity_engine = sujin_identity()
-
-# 价值引擎
-from feature.value module import sujin_values
-value_engine = sujin_values()
-emotions = value_engine.evaluate_event("success")
-
-# 偏误配置
-from feature.bias module import paranoid_bias, optimistic_bias
-bias_engine = BiasEngine(profile=optimistic_bias())
-
-# 世界模型
-from feature.world import optimistic_world, pessimistic_world
-world = optimistic_world()
-```
-
----
+<p align="center">— ✦ —</p>
 
 ## ✦ 项目结构
 
 ```
 ANTHROPOMORPHIC-AGENT-ENGINE/
-├── SPL-anthropic-engine.py       # 核心引擎 + NarrativeMapper（主入口）
-├── feature/                      # 可组合心理学模块
-│   ├── Goal module.py            # 目标管理与动机系统
-│   ├── Identity module.py        # 多身份与身份冲突处理
-│   ├── bias module.py            # 认知偏误配置与应用
-│   ├── value module.py           # 核心价值与情感放大
-│   └── world module.py           # 世界模型先验与期望
-├── sujin-demo/                   # 参考演示资源
-├── assets/                       # 横幅和概览图
-│   ├── banner.svg
-│   └── overview.svg
-├── docs/                         # 交互式文档
-│   └── index.html
-├── IMDA_AI_Verify_Causal_Audit_Report.pdf
-├── LICENSE
-└── README.md
+├── SPL-anthropic-engine.py     # 核心引擎 + NarrativeMapper
+├── feature/                    # Goal / Identity / value / world / bias / language-style 模块
+├── sujin-demo/                 # 参考演示素材
+├── assets/                     # banner.svg, overview.svg
+└── docs/index.html
 ```
 
----
-
-## ✦ 架构概述
-
-引擎遵循模块化架构，每个子系统都可以独立使用或组合在一起：
-
-### 核心子系统
-
-1. **SPLPureCoreV7_3** — 中央处理中枢，协调所有子系统，维护连续的情感状态，并管理时间演化
-
-2. **NarrativeMapper** — 将外部事件（自然语言描述）转换为内核可处理的内感受向量
-
-3. **Goal Engine** — 管理智能体目标，包括重要性、紧迫性、难度和依赖项。提供冲突检测和情感生成
-
-4. **Identity Engine** — 建模智能体内的多身份，处理产生持续心理张力的身份冲突
-
-5. **Value Engine** — 根据核心价值评估事件，并根据价值相关性放大情感反应
-
-6. **Bias Engine** — 应用认知偏误配置到感知和记忆，包括偏执、乐观和抑郁偏误
-
-7. **World Model** — 表示智能体对世界的期望，影响事件的解释方式
-
----
+<p align="center">— ✦ —</p>
 
 ## ✦ 在线演示
 
 <p align="center">
-  <a href="https://your-soulmate.pages.dev/">
-    <img src="https://img.shields.io/badge/在线演示-your--soulmate.pages.dev-D4AF37?style=for-the-badge" alt="Live Demo">
+  <a href="https://www.nohnlins.com/your-soulmate/">
+    <img src="https://img.shields.io/badge/Live%20Demo-nohnlins.com%2Fyour--soulmate-D4AF37?style=for-the-badge" alt="Live Demo">
   </a>
 </p>
 
-体验交互式演示：**https://your-soulmate.pages.dev/**
+交互式演示：**<https://www.nohnlins.com/your-soulmate/>**
 
----
+<p align="center">— ✦ —</p>
 
-## ✦ 许可证与授权
+## ✦ 生态
 
-本仓库**并非开源软件**。采用双轨模式：个人非商业研究免费使用，政府/企业商业使用需付费授权。完整条款请参阅 [LICENSE](./LICENSE) 文件——许可人和适用法律由用户所在地决定。
+ANTHROPOMORPHIC-AGENT-ENGINE 是 NOHN AI 生态的一员——围绕第二视角因果审计与确定性执行构建的项目家族：
 
----
+| 项目 | 仓库 | 定位 |
+|---|---|---|
+| **Second-Perspective (GCAE)** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) | 全局认知审计引擎——五算子因果审计内核（IMDA 95/100） |
+| **NOMOS** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective)（`Intelligent-Decision-Hub--Nomos` 分支） | 可审计确定性决策中心（IMDA 95/100） |
+| **SPL-G1** | [nohn3043-arch/SPL-G1](https://github.com/nohn3043-arch/SPL-G1) | 硬件因果审计可信计算单元（TCU） |
+| **SPL-Virtual-World-Base** | [nohn3043-arch/Second-Reality](https://github.com/nohn3043-arch/Second-Reality) | 虚拟世界与元宇宙基础设施（宪法 / 法律 / 桥梁） |
+| **Story-Engine** | [nohn3043-arch/story-engine](https://github.com/nohn3043-arch/story-engine) | 长篇叙事一致性引擎 |
+| **Antares** | [nohn3043-arch/Antares](https://github.com/nohn3043-arch/Antares) | GFSIP v1.0——带因果审计的联邦稳定互操作协议 |
+| **Anthropomorphic-Agent-Engine** | [nohn3043-arch/Anthropomorphic-Agent-Engine](https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine) | 确定性拟人心理引擎（SPL Pure Core V8.0） |
+| **PAGES** | [nohn3043-arch/pages](https://github.com/nohn3043-arch/pages) | NOHN AI 生态官方落地页 |
+
+<p align="center">— ✦ —</p>
+
+## ✦ 许可与授权
+
+本仓库**非开源**，采用双轨模式：个人非商业研究免费；政府 / 企业需付费商业授权。详见 [LICENSE](./LICENSE) 完整条款——许可人与适用法律按用户所在地确定。
+
+- **申请授权**：国际 / 全球 — [ai@nohnlins.com](mailto:ai@nohnlins.com) · 中国 — [lin@secondai.top](mailto:lin@secondai.top)
 
 <p align="center">
-  <a href="https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine">nohn3043-arch/Anthropomorphic-Agent-Engine</a>
+  <a href="https://github.com/nohn3043-arch">GitHub</a>
   &nbsp;·&nbsp;
   <a href="https://www.nohnlins.com/">nohnlins.com</a>
   &nbsp;·&nbsp;
-  <a href="mailto:lin@secondai.top">lin@secondai.top</a>
+  <a href="mailto:ai@nohnlins.com">ai@nohnlins.com</a>
 </p>
 <p align="center"><sub>NOHN AI · ANTHROPOMORPHIC-AGENT-ENGINE</sub></p>
