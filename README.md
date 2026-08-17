@@ -61,7 +61,7 @@ print(core.snapshot())
 
 The engine models a universal human mental architecture as deterministic, continuous-state subsystems — no LLM, no randomness, fully replayable:
 
-- **8-dimensional emotion fluid** — 喜悦 / 愤怒 / 恐惧 / 信任 / 疏离 / 张力 / 愧疚 / 羞耻, each a continuous state with its own target and baseline.
+- **8-dimensional emotion fluid** — Joy/Rage/Fear/Trust/Distancing/Tension/Guilt/Shame, each a continuous state with its own target and baseline.
 - **Trauma & memory** — trauma nodes, memory reconsolidation, Ebbinghaus-style forgetting, repression–rebound and the implicit-pressure avalanche.
 - **Trust & relationships** — trust-capacity corrosion (`max_trust` decays under chronic cold treatment).
 - **Metabolism of mind** — excitation–arousal, dynamic viscosity, psychological time, energy–fatigue metabolism, and a virtual clock for tests and replay.
