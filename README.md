@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://sourceforge.net/p/your-soulmate/git/ci/main/tree/banner.png?format=raw" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
+  <img src="assets/banner.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE banner" style="width:100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/agent--D4AF37?style=flat-square" alt="agent">
-  <img src="https://img.shields.io/badge/psychology--D4AF37?style=flat-square" alt="psychology">
-  <img src="https://img.shields.io/badge/spl-v8-D4AF37?style=flat-square" alt="spl-v8">
+  <img src="https://img.shields.io/badge/agent-D4AF37?style=flat-square" alt="agent">
+  <img src="https://img.shields.io/badge/psychology-D4AF37?style=flat-square" alt="psychology">
+  <img src="https://img.shields.io/badge/spl-v8.0-D4AF37?style=flat-square" alt="spl-v8.0">
 </p>
 
 <blockquote align="center">
@@ -19,7 +19,7 @@
 <p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE is an anthropomorphic psychology engine built on SPL Pure Core V8.0. It models cognition, emotion, motivation, and sociality as composable subsystems, giving AI agents anthropomorphic internal states and consistent personalities for coherent, emotionally credible behavior in long-term interactions.</p>
 
 <p align="center">
-  <img src="https://sourceforge.net/p/your-soulmate/git/ci/main/tree/assets/overview.svg?format=raw" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
+  <img src="assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
 </p>
 
 </div>
@@ -29,8 +29,11 @@
 ## ✦ Quick Start
 
 ```bash
-git clone git@github.com:NOHN-AI/ANTHROPOMORPHIC-AGENT-ENGINE.git
-cd ANTHROPOMORPHIC-AGENT-ENGINE
+# Primary: GitHub
+git clone https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine.git
+# Mirror: Gitee
+# git clone https://gitee.com/sjiun/Anthropomorphic-Agent-Engine.git
+cd Anthropomorphic-Agent-Engine
 # Pure Python ≥3.8 — standard library only, nothing to install
 python "SPL-anthropic-engine.py"   # run the engine / bundled demo
 ```
@@ -78,6 +81,8 @@ The engine models a universal human mental architecture as deterministic, contin
 
 </div>
 
+<p align="center">— ✦ —</p>
+
 ## ✦ Usage
 
 <div style="max-width:880px;margin:0 auto;padding:0 16px">
@@ -97,36 +102,58 @@ vec = spl.NarrativeMapper.map_event("insult", intensity=1.0)
 
 </div>
 
+<p align="center">— ✦ —</p>
+
 ## ✦ Project Structure
 
 ```
 ANTHROPOMORPHIC-AGENT-ENGINE/
 ├── SPL-anthropic-engine.py     # core engine + NarrativeMapper
-├── feature/                    # Goal / Identity / bias / value / world modules
+├── feature/                    # Goal / Identity / value / world / bias / language-style modules
 ├── sujin-demo/                 # reference demo assets
 ├── assets/                     # banner.svg, overview.svg
 └── docs/index.html
 ```
 
+<p align="center">— ✦ —</p>
+
 ## ✦ Live Demo
 
 <p align="center">
-  <a href="https://your-soulmate.pages.dev/">
-    <img src="https://img.shields.io/badge/Live%20Demo-your--soulmate.pages.dev-D4AF37?style=for-the-badge" alt="Live Demo">
+  <a href="https://www.nohnlins.com/your-soulmate/">
+    <img src="https://img.shields.io/badge/Live%20Demo-nohnlins.com%2Fyour--soulmate-D4AF37?style=for-the-badge" alt="Live Demo">
   </a>
 </p>
 
-Try the interactive demo: **<https://your-soulmate.pages.dev/>**
+Try the interactive demo: **<https://www.nohnlins.com/your-soulmate/>**
 
 <p align="center">— ✦ —</p>
 
+## ✦ Ecosystem
+
+ANTHROPOMORPHIC-AGENT-ENGINE is one member of the NOHN AI ecosystem — a family of projects built around second-perspective causal audit and deterministic execution:
+
+| Project | Repository | What it is |
+|---|---|---|
+| **Second-Perspective (GCAE)** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) | Global cognitive audit engine — the five-operator causal audit core (IMDA 95/100) |
+| **NOMOS** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) (`Intelligent-Decision-Hub--Nomos` branch) | Auditable deterministic decision hub (IMDA 95/100) |
+| **SPL-G1** | [nohn3043-arch/SPL-G1-General-purpose-processor](https://github.com/nohn3043-arch/SPL-G1-General-purpose-processor) | Hardware causal-audit Trusted Compute Unit (TCU) |
+| **SPL-Virtual-World-Base** | [nohn3043-arch/Second-Reality](https://github.com/nohn3043-arch/Second-Reality) | Virtual-world & metaverse infrastructure (Constitution / Law / Bridge) |
+| **Story-Engine** | [nohn3043-arch/story-engine](https://github.com/nohn3043-arch/story-engine) | Long-form narrative consistency engine |
+| **Antares** | [nohn3043-arch/Antares](https://github.com/nohn3043-arch/Antares) | GFSIP v1.0 — federated stable interoperability protocol with causal audit |
+| **Anthropomorphic-Agent-Engine** | [nohn3043-arch/Anthropomorphic-Agent-Engine](https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine) | Deterministic anthropomorphic psychology engine (SPL Pure Core V8.0) |
+| **PAGES** | [nohn3043-arch/pages](https://github.com/nohn3043-arch/pages) | Official NOHN AI ecosystem landing page |
+
+<p align="center">— ✦ —</p>
 
 ## ✦ License & Authorization
 
-This repository is **not open-source**. It uses a dual-track model: free for individual non-commercial research, paid commercial authorization required for government / enterprise. See [LICENSE](./LICENSE) for the full terms — licensor and governing law are determined by the user's location.
+This repository is **not open-source**. It uses a dual-track model: free for individual non-commercial research; paid commercial authorization required for government / enterprise. See [LICENSE](./LICENSE) for the full terms — licensor and governing law are determined by the user's location.
+
+- **Apply for authorization**: International / Global — [ai@nohnlins.com](mailto:ai@nohnlins.com) · China — [lin@secondai.top](mailto:lin@secondai.top)
 
 <p align="center">
-  <a href="https://github.com/NOHN-AI">NOHN-AI</a>
+  <a href="https://github.com/nohn3043-arch">GitHub</a>
   &nbsp;·&nbsp;
   <a href="https://www.nohnlins.com/">nohnlins.com</a>
   &nbsp;·&nbsp;
