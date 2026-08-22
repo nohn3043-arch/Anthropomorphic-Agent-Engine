@@ -78,6 +78,8 @@ print(core.snapshot())
 | 叙事映射器 | `SPL-anthropic-engine.py` | 外部、可替换的人格层（乐观 / 偏执 / 厌世），将事件翻译为内感受向量。 |
 | 身份引擎 | `feature/Identity module.py` | 多身份模型；身份冲突注入持续基线张力。 |
 | 目标 / 价值 / 偏见 / 世界 | `feature/*.py` | 可组合驱力、估值、认知偏见与世界模型先验。 |
+| 语言风格渲染 | `feature/language style.py` | 将内部状态翻译为"角色该怎么说话"的风格指令 / 台词渲染。 |
+| 对话演示服务 | `feature/spl-chat-server.py` | 零依赖本地对话服务（标准库 http.server），可选人格直接对话。 |
 
 </div>
 
@@ -110,6 +112,8 @@ vec = spl.NarrativeMapper.map_event("insult", intensity=1.0)
 ANTHROPOMORPHIC-AGENT-ENGINE/
 ├── SPL-anthropic-engine.py     # 核心引擎 + NarrativeMapper
 ├── feature/                    # Goal / Identity / value / world / bias / language-style 模块
+│   ├── spl-chat-server.py      # 本地对话演示服务（零依赖）
+│   └── language-style-demo.py  # 台词风格渲染演示
 ├── sujin-demo/                 # 参考演示素材
 ├── assets/                     # banner.svg, overview.svg
 └── docs/index.html
