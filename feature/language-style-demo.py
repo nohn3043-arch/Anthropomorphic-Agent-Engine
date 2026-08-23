@@ -48,7 +48,7 @@ def chat_round(core, persona, style_profile, event, intensity=1.0):
     return snapshot, expression, rendered
 
 
-def show(title, snapshot, expression, rendered):
+def show(title, snapshot, expression, rendered, style_profile):
     print("=" * 70)
     print("■", title)
     print("-" * 70)
@@ -61,6 +61,8 @@ def show(title, snapshot, expression, rendered):
     print(f"  真实意图  : {expression.speech_intention}  沉默:{expression.should_silence}")
     if expression.should_silence and rendered.silence_hint:
         print(f"  【台词】  : {rendered.silence_hint}")
+    else:
+        print(f"  【合成台词】: {LanguageStyleEngine(style_profile).generate_line(snapshot, expression)}")
     print("  【LLM Prompt】")
     for line in rendered.prompt_injection.split("\n"):
         print("    ", line)
@@ -80,10 +82,10 @@ if __name__ == "__main__":
                           silence_hint="她没有回答。只是垂下眼帘，避开了目光。")
     qhy_style = StyleProfile(base_verbosity=0.4, formality=0.9, sarcasm_tendency=0.4)
     snap, expr, rnd = chat_round(base_core, qhy, qhy_style, "insult", 1.0)
-    show("祁皇英（restrained · 沉默策略）", snap, expr, rnd)
+    show("祁皇英（restrained · 沉默策略）", snap, expr, rnd, qhy_style)
 
     # ── 角色 B：素锦（坦率直接，情绪如常表露）──
     sujin = LanguagePersona(mode="direct", silence_policy=False)
     sujin_style = StyleProfile(base_verbosity=0.7, formality=0.4, sarcasm_tendency=0.2)
     snap2, expr2, rnd2 = chat_round(base_core, sujin, sujin_style, "compliment", 0.8)
-    show("素锦（direct · 情绪外露）", snap2, expr2, rnd2)
+    show("素锦（direct · 情绪外露）", snap2, expr2, rnd2, sujin_style)

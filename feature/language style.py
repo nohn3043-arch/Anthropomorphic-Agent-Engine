@@ -220,6 +220,127 @@ class LanguageStyleEngine:
         self._flow = {}
         self._frame_count = 0
 
+    # ---- 情感流体 → 动态温度基调（多维并存，非单一主导） ----
+    EMOTION_TONE_DIMS = [
+        ("愤怒", 0.6, "怒意锋锐"),
+        ("恐惧", 0.6, "紧绷警觉"),
+        ("羞耻", 0.5, "闪躲内耗"),
+        ("愧疚", 0.5, "沉重亏欠"),
+        ("喜悦", 0.6, "明亮跃动"),
+        ("疏离", 0.5, "冰冷疏远"),
+        ("张力", 0.6, "凝滞紧绷"),
+    ]
+
+    def _active_marks(self, core_snapshot: Dict[str, Any]) -> List[str]:
+        """本帧激活的丰富化维度标记（用于示例台词聚合 & 台词生成）。"""
+        fluid = core_snapshot.get("fluid", {})
+        marks: List[str] = []
+        if fluid.get("愧疚", 0.0) > 0.5:
+            marks.append("guilt")
+        if fluid.get("恐惧", 0.0) > 0.6 and fluid.get("愤怒", 0.0) < 0.6:
+            marks.append("fear")
+        if fluid.get("喜悦", 0.0) > 0.6:
+            marks.append("joy")
+        self_esteem = core_snapshot.get("self_esteem", 0.5)
+        if self_esteem < 0.3:
+            marks.append("low_esteem")
+        elif self_esteem > 0.7:
+            marks.append("high_esteem")
+        if core_snapshot.get("trauma"):
+            marks.append("trauma")
+        return marks
+
+    def _dynamic_tone(self, fluid: Dict[str, float]) -> str:
+        """多维情感并存的动态温度：超阈维度全部计入，层次并存而非只取其一。"""
+        parts: List[str] = []
+        # 信任 > 0.6 且 张力 < 0.3 → 松弛信任态
+        if fluid.get("信任", 0.0) > 0.6 and fluid.get("张力", 0.0) < 0.3:
+            parts.append(f"柔和松弛({fluid.get('信任', 0.0):.2f})")
+        for dim, thr, desc in self.EMOTION_TONE_DIMS:
+            v = fluid.get(dim, 0.0)
+            if v > thr:
+                parts.append(f"{desc}({v:.2f})")
+        # 愤怒+疏离同高 → 冰点组合（特殊复合态）
+        if fluid.get("愤怒", 0.0) > 0.6 and fluid.get("疏离", 0.0) > 0.5:
+            parts.append("零下冰点·带锋芒")
+        if not parts:
+            return "克制，维持基础社交距离。"
+        return "、".join(parts) + "（层次并存，随本帧情感分布起伏）"
+
+    def _dominant_detail(self, fluid: Dict[str, float]) -> str:
+        """取当前主导情感的一句具象表达，供台词填充。"""
+        if fluid.get("恐惧", 0.0) > 0.6:
+            return "我有些不安，怕事情往最坏的方向走"
+        if fluid.get("愤怒", 0.0) > 0.6:
+            return "这口气我咽不下去"
+        if fluid.get("羞耻", 0.0) > 0.5:
+            return "我知道我做得不够好"
+        if fluid.get("愧疚", 0.0) > 0.5:
+            return "这件事是我该负责"
+        if fluid.get("喜悦", 0.0) > 0.6:
+            return "我挺高兴的"
+        return "事情就按这个方向走吧"
+
+    def _enrich(self, line: str, core_snapshot: Dict[str, Any]) -> str:
+        """按防御载荷/自尊/紧张/词汇域注入填充词与口癖，让合成台词带角色味。"""
+        out = line
+        fluid = core_snapshot.get("fluid", {})
+        denial = core_snapshot.get("denial_load", 0.0)
+        self_esteem = core_snapshot.get("self_esteem", 0.5)
+        fillers = self.profile.favorite_fillers
+        vocab = self.profile.vocabulary_domain
+        # 否认 → 绝对化词强化
+        if denial > 0.5 and self.profile.absolute_words:
+            out = f"{self.profile.absolute_words[0]}，{out}"
+        # 低自尊 → 模糊断言
+        if self_esteem < 0.3:
+            out = "也许是……" + out + "……大概吧。"
+        # 高自尊 → 斩钉截铁收尾
+        elif self_esteem > 0.7:
+            out = out + "，没什么好商量。"
+        # 高紧张 → 口癖填充
+        if fluid.get("张力", 0.0) > 0.7 and fillers:
+            out = fillers[0] + out
+        # 词汇域 → 末尾点缀一个意象
+        if vocab and self.profile.vocabulary_domain:
+            out = f"{out}——就像{vocab[0]}里的光景。"
+        return out
+
+    def generate_line(self, core_snapshot: Dict[str, Any],
+                      expression: Optional["ExpressionResult"] = None) -> str:
+        """直接产出台词（无需下游 LLM 的确定性模板合成）。
+
+        依据当前状态：
+        - 沉默策略：返回动作/旁白描写；
+        - 表达意图(speech_intention)：选定台词骨架；
+        - 激活维度/防御载荷/自尊/词汇域：注入填充词形成角色层次。
+        """
+        if expression is not None and expression.should_silence:
+            return expression.silence_hint or "（沉默）"
+
+        intention = expression.speech_intention if expression else "direct_disclosure"
+        fluid = core_snapshot.get("fluid", {})
+
+        # few-shot 优先：命中激活维度的示例台词，再注入角色填充词
+        pool = self.profile.example_lines or {}
+        marks = self._active_marks(core_snapshot)
+        for m in marks:
+            if pool.get(m):
+                return self._enrich(pool[m][0], core_snapshot)
+        if pool.get("default"):
+            return self._enrich(pool["default"][0], core_snapshot)
+
+        # 模板合成（无示例台词时兜底）
+        detail = self._dominant_detail(fluid)
+        CORE = {
+            "direct_disclosure": "我直说了，{detail}。",
+            "indirect_protection": "……其实{detail}，只是你误会了。",
+            "concealment": "没什么，就是{detail}。",
+            "power_assertion": "看来是你不信我，才会觉得{detail}。",
+        }
+        skeleton = CORE.get(intention, "……{detail}。").format(detail=detail)
+        return self._enrich(skeleton, core_snapshot)
+
     def _update_flow(self, fluid: Dict[str, float]) -> None:
         """根据本帧情绪负载更新滚动状态；仅 stateful=True 时由 render_style 调用。"""
         if not self._flow:
@@ -313,7 +434,6 @@ class LanguageStyleEngine:
         silence_hint = ""
         persona_mode = None
         persona_active = False
-        tone_temperature = "克制，维持基础的社交距离。"
         if expression is not None:
             mode = expression.expression_mode
             hidden = expression.emotion_hidden
@@ -333,7 +453,6 @@ class LanguageStyleEngine:
             # 人格模式直接决定温度基调与专属表演提示
             persona_mode = mode
             persona_active = True
-            tone_temperature = PERSONA_TEMPERATURE.get(mode, "克制，维持基础的社交距离。")
             if mode == "restrained":
                 instructions.append("用命令或公事公办的口吻，杜绝情绪化字眼。")
             elif mode == "evasive":
@@ -370,94 +489,69 @@ class LanguageStyleEngine:
 
         # ==========================================
         # 3. 情绪流体层：温度与态度
-        #    人格激活时，温度已被人格层锁定（见 1.5），此处仅补充修辞，不覆盖温度。
+        #    温度改为统一动态计算（见 3.7），此处仅累计修辞与表演指令。
         # ==========================================
         # 羞耻 (Shame) 驱动：回避与自嘲
         if fluid.get("羞耻", 0.0) > 0.5:
             rhetorical_devices.append("生硬转移话题")
             rhetorical_devices.append("防御性自嘲")
             instructions.append("避免正面回答问题，倾向于用自贬或自嘲来建立护城河。")
-            if not persona_active:
-                tone_temperature = "闪躲，内耗，带着自弃的冰冷。"
-        
+
         # 愤怒 (Anger) 与 疏离 (Detachment) 的组合
         elif fluid.get("愤怒", 0.0) > 0.6 and fluid.get("疏离", 0.0) > 0.5:
             rhetorical_devices.append("冰冷反问")
             if self.profile.sarcasm_tendency > 0.4:
                 rhetorical_devices.append("冷嘲热讽")
-            if not persona_active:
-                tone_temperature = "零下冰点，极度疏远且带有锋芒。"
             instructions.append("禁止使用任何情绪化的字眼，用最客气、最理智的词汇说出最扎心的话。")
-            
+
         # 正常状态 / 信任状态
         elif fluid.get("信任", 0.0) > 0.6 and fluid.get("张力", 0.0) < 0.3:
-            if not persona_active:
-                tone_temperature = "温和，卸下防备，留有余地。"
             instructions.append("语气松弛，允许流露真实的脆弱或温柔，减少心理防御词汇。")
-        else:
-            if not persona_active:
-                tone_temperature = "克制，维持基础的社交距离。"
 
         # ==========================================
         # 3.5 丰富化新增维度（V8.0 其余多轴，默认向后兼容）
-        #     仅在对应维度超阈值时追加，不修改既有输出。
-        #     - 修辞/指令：全部维度可并存累加；
-        #     - 温度：仅由"首个激活的新增维度"设置一次（体现主导情绪），
-        #       与原文 1.5 之后"温度只设一次"的语义一致；not persona_active 才写。
+        #     修辞/指令全维度可并存累加；温度统一见 3.7 动态计算。
         # ==========================================
-        active_marks: List[str] = []   # 当前帧激活的维度标记，供示例台词聚合
-        temp_set = False
-
         # 愧疚 (Guilt)：行为层面的亏欠——区别于羞耻的"自我形象受损"
-        guilt = fluid.get("愧疚", 0.0)
-        if guilt > 0.5:
-            active_marks.append("guilt")
+        if fluid.get("愧疚", 0.0) > 0.5:
             rhetorical_devices.append("赎罪式道歉")
             instructions.append("频繁为结果承担责任，倾向用补偿性许诺或道歉，话语带有亏欠感，避免推卸。")
-            if not persona_active and not temp_set:
-                tone_temperature = "沉重，带着自责的亏欠感。"
-                temp_set = True
 
         # 恐惧 (Fear)：对威胁的预判——条件假设句 + 自我打气
         if fluid.get("恐惧", 0.0) > 0.6 and fluid.get("愤怒", 0.0) < 0.6:
-            active_marks.append("fear")
             rhetorical_devices.append("条件假设")
             instructions.append("常用'如果…就好了''万一…'式的假设句，不自觉预演最坏结果，并试图用语言自我安抚。")
-            if not persona_active and not temp_set:
-                tone_temperature = "紧绷，带着被威胁的警觉。"
-                temp_set = True
 
         # 喜悦 (Joy)：积极的情绪外溢——主动分享与追问
         if fluid.get("喜悦", 0.0) > 0.6:
-            active_marks.append("joy")
             rhetorical_devices.append("积极外溢")
             instructions.append("语气上扬，主动分享细节并追问对方感受，句式轻快，愿意延续话题。")
-            if not persona_active and not temp_set:
-                tone_temperature = "明亮，带着被唤醒的热情。"
-                temp_set = True
 
         # 自尊 (Self-esteem)：断言强度——低自尊自贬/征求确认，高自尊斩钉截铁
         self_esteem = core_snapshot.get("self_esteem", 0.5)
         if self_esteem is not None:
             if self_esteem < 0.3:
-                active_marks.append("low_esteem")
                 instructions.append("自我评价低，倾向自贬、模糊化自己的判断，常用'也许''大概'并征求对方确认。")
             elif self_esteem > 0.7:
-                active_marks.append("high_esteem")
                 instructions.append("自我肯定强，语气断言式、斩钉截铁，很少让步，习惯承担话语主导。")
 
         # 创伤 (Trauma)：触发相关主题时措辞回避性停滞
-        trauma = core_snapshot.get("trauma") or {}
-        if trauma:
-            active_marks.append("trauma")
+        if core_snapshot.get("trauma"):
             instructions.append("存在未愈合创伤记忆：触及相关主题时措辞会出现停顿、跳跃或突然转移话题的回避倾向。")
-            if not persona_active and not temp_set:
-                tone_temperature = "带刺，回避与警觉并存。"
-                temp_set = True
 
         # 词汇域 (Vocabulary Domain)：角色惯用意象/隐喻，注入用词世界
         if self.profile.vocabulary_domain:
             instructions.append(f"用词偏好取自下列意象语域，隐喻与类比多从其中取材：{'、'.join(self.profile.vocabulary_domain)}。")
+
+        # ==========================================
+        # 3.7 温度：多维动态计算（人格基座 × 流体动态，不再单一锁定）
+        # ==========================================
+        fluid_tone = self._dynamic_tone(fluid)
+        if persona_active and persona_mode:
+            base = PERSONA_TEMPERATURE.get(persona_mode, "克制，维持基础的社交距离。")
+            tone_temperature = f"{base}｜底层{fluid_tone}"
+        else:
+            tone_temperature = fluid_tone
 
         # ==========================================
         # 3.6 帧间连续性注入（仅 stateful=True 且有累积）
@@ -485,7 +579,7 @@ class LanguageStyleEngine:
         example_pool = self.profile.example_lines or {}
         if example_pool:
             candidate = ""
-            for mark in active_marks:            # 按激活顺序逐维度找
+            for mark in self._active_marks(core_snapshot):   # 按激活顺序逐维度找
                 lines = example_pool.get(mark)
                 if lines:
                     candidate = lines[0]
