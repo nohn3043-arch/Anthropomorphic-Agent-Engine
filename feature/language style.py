@@ -177,6 +177,9 @@ class StyleProfile:
     sarcasm_tendency: float = 0.3      # 默认讽刺倾向 [0.0真诚 - 1.0阴阳怪气]
     favorite_fillers: List[str] = field(default_factory=lambda: ["…", "所以", "不过"])
     absolute_words: List[str] = field(default_factory=lambda: ["绝不可能", "永远", "绝对"])
+    # —— 丰富化扩展（默认关闭，向后兼容）——
+    vocabulary_domain: List[str] = field(default_factory=list)      # 角色惯用意象/隐喻语域（如["军营","兵器"]）
+    example_lines: Dict[str, List[str]] = field(default_factory=dict)  # 各情感温度下的示例台词（few-shot）
 
 
 @dataclass
@@ -191,14 +194,50 @@ class RenderedStyle:
     tone_temperature: str              # 情感温度（如"冰冷疏离", "极度失控", "温和"）
     prompt_injection: str              # 建议直接注入 LLM Prompt 的指令
     silence_hint: str = ""             # 语言人格触发的沉默策略动作描写（默认空=正常说话）
+    style_example: str = ""            # 可选：当前情感温度下的示例台词（few-shot），供 LLM 锚定腔调
 
 
 class LanguageStyleEngine:
     """
     风格渲染引擎：将枯燥的浮点数转化为文字的张力。
+
+    可选「帧间连续性」（stateful=True）：
+    在同一人格的多次交互中维护滚动状态——持续高负载会让措辞逐帧
+    愈演愈烈、语速加快。默认关闭，逐帧独立渲染（向后兼容）。
     """
-    def __init__(self, profile: StyleProfile = None):
+    # 连续帧数阈值：情绪高温持续超过多少帧即视为"愈演愈烈"
+    ESCALATION_FRAMES = 2
+    # 语速漂移：verbal_acceleration 达到该值才在句式中体现"加快紧凑"
+
+    def __init__(self, profile: StyleProfile = None, stateful: bool = False):
         self.profile = profile or StyleProfile()
+        self.stateful = stateful
+        self._flow = {}          # {"hits": {dim:连续高温帧数}, "verbal_acceleration": 语速漂移计数}
+        self._frame_count = 0
+
+    def reset_flow(self):
+        """重置跨帧滚动状态（startup 或新建对话时调用）。"""
+        self._flow = {}
+        self._frame_count = 0
+
+    def _update_flow(self, fluid: Dict[str, float]) -> None:
+        """根据本帧情绪负载更新滚动状态；仅 stateful=True 时由 render_style 调用。"""
+        if not self._flow:
+            self._flow = {"hits": {}, "verbal_acceleration": 0}
+        flow = self._flow
+        hits = flow["hits"]
+        # 各情绪维度是否高温：F 帧计连续超标次数
+        for dim, thr in (("愤怒", 0.6), ("恐惧", 0.6), ("羞耻", 0.5),
+                         ("张力", 0.6), ("愧疚", 0.5), ("喜悦", 0.6)):
+            hits[dim] = hits.get(dim, 0) + 1 if fluid.get(dim, 0.0) > thr else 0
+        # 语速漂移：任一维度连续超阈值且本帧总情绪负载仍高 → 加速；否则回退
+        tension = max(fluid.get("愤怒", 0.0), fluid.get("恐惧", 0.0),
+                      fluid.get("羞耻", 0.0), fluid.get("张力", 0.0))
+        if any(v >= self.ESCALATION_FRAMES for v in hits.values()) and tension > 0.5:
+            flow["verbal_acceleration"] = min(5, flow.get("verbal_acceleration", 0) + 1)
+        else:
+            flow["verbal_acceleration"] = max(0, flow.get("verbal_acceleration", 0) - 1)
+        self._frame_count += 1
 
     def render_style(self, core_snapshot: Dict[str, Any],
                      expression: Optional[ExpressionResult] = None) -> RenderedStyle:
@@ -216,6 +255,12 @@ class LanguageStyleEngine:
         mood = core_snapshot.get("mood", {})
         energy = core_snapshot.get("energy", 100.0)
         fatigue = core_snapshot.get("fatigue", 0.0)
+
+        # 帧间连续性（仅 stateful=True）：先更新滚动状态，供本帧注入
+        flow = None
+        if self.stateful:
+            self._update_flow(fluid)
+            flow = self._flow
         
         # 提取防御与失调机制
         suppression = core_snapshot.get("suppression_load", 0.0)
@@ -354,10 +399,102 @@ class LanguageStyleEngine:
                 tone_temperature = "克制，维持基础的社交距离。"
 
         # ==========================================
+        # 3.5 丰富化新增维度（V8.0 其余多轴，默认向后兼容）
+        #     仅在对应维度超阈值时追加，不修改既有输出。
+        #     - 修辞/指令：全部维度可并存累加；
+        #     - 温度：仅由"首个激活的新增维度"设置一次（体现主导情绪），
+        #       与原文 1.5 之后"温度只设一次"的语义一致；not persona_active 才写。
+        # ==========================================
+        active_marks: List[str] = []   # 当前帧激活的维度标记，供示例台词聚合
+        temp_set = False
+
+        # 愧疚 (Guilt)：行为层面的亏欠——区别于羞耻的"自我形象受损"
+        guilt = fluid.get("愧疚", 0.0)
+        if guilt > 0.5:
+            active_marks.append("guilt")
+            rhetorical_devices.append("赎罪式道歉")
+            instructions.append("频繁为结果承担责任，倾向用补偿性许诺或道歉，话语带有亏欠感，避免推卸。")
+            if not persona_active and not temp_set:
+                tone_temperature = "沉重，带着自责的亏欠感。"
+                temp_set = True
+
+        # 恐惧 (Fear)：对威胁的预判——条件假设句 + 自我打气
+        if fluid.get("恐惧", 0.0) > 0.6 and fluid.get("愤怒", 0.0) < 0.6:
+            active_marks.append("fear")
+            rhetorical_devices.append("条件假设")
+            instructions.append("常用'如果…就好了''万一…'式的假设句，不自觉预演最坏结果，并试图用语言自我安抚。")
+            if not persona_active and not temp_set:
+                tone_temperature = "紧绷，带着被威胁的警觉。"
+                temp_set = True
+
+        # 喜悦 (Joy)：积极的情绪外溢——主动分享与追问
+        if fluid.get("喜悦", 0.0) > 0.6:
+            active_marks.append("joy")
+            rhetorical_devices.append("积极外溢")
+            instructions.append("语气上扬，主动分享细节并追问对方感受，句式轻快，愿意延续话题。")
+            if not persona_active and not temp_set:
+                tone_temperature = "明亮，带着被唤醒的热情。"
+                temp_set = True
+
+        # 自尊 (Self-esteem)：断言强度——低自尊自贬/征求确认，高自尊斩钉截铁
+        self_esteem = core_snapshot.get("self_esteem", 0.5)
+        if self_esteem is not None:
+            if self_esteem < 0.3:
+                active_marks.append("low_esteem")
+                instructions.append("自我评价低，倾向自贬、模糊化自己的判断，常用'也许''大概'并征求对方确认。")
+            elif self_esteem > 0.7:
+                active_marks.append("high_esteem")
+                instructions.append("自我肯定强，语气断言式、斩钉截铁，很少让步，习惯承担话语主导。")
+
+        # 创伤 (Trauma)：触发相关主题时措辞回避性停滞
+        trauma = core_snapshot.get("trauma") or {}
+        if trauma:
+            active_marks.append("trauma")
+            instructions.append("存在未愈合创伤记忆：触及相关主题时措辞会出现停顿、跳跃或突然转移话题的回避倾向。")
+            if not persona_active and not temp_set:
+                tone_temperature = "带刺，回避与警觉并存。"
+                temp_set = True
+
+        # 词汇域 (Vocabulary Domain)：角色惯用意象/隐喻，注入用词世界
+        if self.profile.vocabulary_domain:
+            instructions.append(f"用词偏好取自下列意象语域，隐喻与类比多从其中取材：{'、'.join(self.profile.vocabulary_domain)}。")
+
+        # ==========================================
+        # 3.6 帧间连续性注入（仅 stateful=True 且有累积）
+        # ==========================================
+        if flow is not None:
+            hits = flow.get("hits") or {}
+            sustained = [d for d, v in hits.items() if v >= self.ESCALATION_FRAMES]
+            if sustained:
+                instructions.append(
+                    f"以下情绪已持续数帧、措辞须愈演愈烈（{'、'.join(sustained)}）："
+                    f"与前一刻相比，语气浓度和强度必须明显抬升，禁止停滞在同一强度。")
+            if flow.get("verbal_acceleration", 0) >= 2 and "（沉默）" not in sentence_length:
+                sentence_length = sentence_length.rstrip() + " 伴随持续高压，语速加快，句子被压缩、节奏愈紧凑。"
+
+        # ==========================================
         # 4. 组装 Prompt Injection
         # ==========================================
         # 合并所有标点/风格倾向：物理层（基线）在前，防御层/情绪层追加在后。
         punctuation_bias = "；".join(dict.fromkeys(punctuation_notes))
+
+        # 示例台词（少样本 few-shot）：按本帧激活的维度标记聚合，供下游 LLM 锚定腔调。
+        #   example_lines 的 key 用维度标记（guilt/fear/joy/low_esteem/high_esteem/trauma）
+        #   或兜底 "default"。命中顺序：维度标记优先，default 兜底，取第一个非空。
+        style_example = ""
+        example_pool = self.profile.example_lines or {}
+        if example_pool:
+            candidate = ""
+            for mark in active_marks:            # 按激活顺序逐维度找
+                lines = example_pool.get(mark)
+                if lines:
+                    candidate = lines[0]
+                    break
+            if not candidate:                     # 兜底 default
+                default_lines = example_pool.get("default")
+                if default_lines:
+                    candidate = default_lines[0]
+            style_example = candidate
 
         final_prompt = (
             f"【动态语言限制】\n"
@@ -367,6 +504,8 @@ class LanguageStyleEngine:
             f"- 激活修辞：{', '.join(rhetorical_devices) if rhetorical_devices else '无特殊修辞'}\n"
             f"- 核心表演指导：{' '.join(instructions)}"
         )
+        if style_example:
+            final_prompt += f"\n- 台词示例（仿照此腔调）：{style_example}"
 
         return RenderedStyle(
             sentence_length=sentence_length,
@@ -374,7 +513,8 @@ class LanguageStyleEngine:
             punctuation_bias=punctuation_bias,
             tone_temperature=tone_temperature,
             prompt_injection=final_prompt,
-            silence_hint=silence_hint
+            silence_hint=silence_hint,
+            style_example=style_example
         )
 
 
