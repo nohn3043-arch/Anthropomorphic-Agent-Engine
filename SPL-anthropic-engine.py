@@ -1,7 +1,82 @@
 import time
 import math
+import json
+import os
+import datetime
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
+
+
+# ================================================================
+# 审计日志器（确定性 · 本地JSONL · 失败不阻断引擎）
+# ================================================================
+class AuditLogger:
+    """可解释/可验证/可审计的本地日志。
+
+    每条记录为一行 JSON，包含：序号、时间戳、引擎版本、会话ID、
+    事件类型、输入参数、状态快照摘要。写入失败静默跳过，
+    绝不影响引擎核心状态演化。
+    """
+    ENGINE_VERSION = "SPL-V8.0"
+
+    def __init__(self, log_dir: str = "logs", session_id: Optional[str] = None,
+                 enabled: bool = True):
+        self.enabled = enabled
+        self.log_dir = log_dir
+        self.session_id = session_id or (
+            "sess-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            + "-" + str(os.getpid())
+        )
+        self.log_file = os.path.join(log_dir, f"audit-{self.session_id}.jsonl")
+        self._entry_count = 0
+        if enabled:
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+            except Exception:
+                pass
+
+    def log(self, event_type: str, input_data: Any, snapshot: Dict[str, Any],
+            **extra: Any) -> None:
+        if not self.enabled:
+            return
+        try:
+            entry = {
+                "seq": self._entry_count,
+                "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                "engine": self.ENGINE_VERSION,
+                "session": self.session_id,
+                "event": event_type,
+                "input": self._safe(input_data),
+                "snapshot": self._summarize(snapshot),
+            }
+            entry.update({k: self._safe(v) for k, v in extra.items()})
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            self._entry_count += 1
+        except Exception:
+            pass  # 审计日志失败不得阻断引擎核心
+
+    @staticmethod
+    def _safe(obj: Any) -> Any:
+        try:
+            json.dumps(obj)
+            return obj
+        except (TypeError, ValueError):
+            return str(obj)
+
+    @staticmethod
+    def _summarize(snap: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(snap, dict):
+            return {}
+        keys = ("fluid", "mood", "self_esteem", "energy", "fatigue",
+                "excitation", "max_trust", "suppression_load", "denial_load",
+                "rationalization_load", "latent_pressure",
+                "cognitive_dissonance", "sleep_debt", "trauma",
+                "memory_count", "expected_count")
+        return {k: snap.get(k) for k in keys if k in snap}
+
+    def export_path(self) -> Optional[str]:
+        return self.log_file if os.path.exists(self.log_file) else None
 
 
 # ================================================================
@@ -201,6 +276,19 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 
     last_perceived: Dict[str, float] = field(default_factory=dict)
 
+    # ---------- 审计日志（可解释/可验证/可审计） ----------
+    audit_enabled: bool = True
+    audit_log_dir: str = "logs"
+    audit_session_id: Optional[str] = None
+    audit_logger: Optional[AuditLogger] = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if self.audit_logger is None and self.audit_enabled:
+            self.audit_logger = AuditLogger(
+                log_dir=self.audit_log_dir,
+                session_id=self.audit_session_id,
+            )
+
     # ==================================================================
     # 时钟：支持虚拟时间注入（测试/回放必用）
     # ==================================================================
@@ -289,6 +377,15 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 
         self.last_time = self._now()
 
+        # 审计日志：记录本次状态变更
+        if self.audit_logger:
+            self.audit_logger.log(
+                "process_vector",
+                {"vector": vector, "raw_intensity": raw_intensity,
+                 "event_id": event_id},
+                self.snapshot(),
+            )
+
     # ==================================================================
     # 公共入口 2：空转 / 独处时间
     # ==================================================================
@@ -359,6 +456,10 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         self._update_mood()
         self._update_dynamic_viscosity()
 
+        # 审计日志
+        if self.audit_logger:
+            self.audit_logger.log("sleep", {"hours": hours}, self.snapshot())
+
     # ==================================================================
     # V8.0 公共入口 4：设定预期
     # ==================================================================
@@ -378,6 +479,14 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             "age": 0.0,
         }
 
+        # 审计日志
+        if self.audit_logger:
+            self.audit_logger.log(
+                "expect",
+                {"event_id": event_id, "valence": valence, "confidence": confidence},
+                self.snapshot(),
+            )
+
     # ==================================================================
     # V8.0 公共入口 5：触发认知失调
     # ==================================================================
@@ -395,6 +504,14 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         self.fluid["愧疚"] = min(1.0, self.fluid["愧疚"] + magnitude * 0.3)
         # 失调消耗能量
         self.energy = max(self.ENERGY_MIN, self.energy - magnitude * 5.0)
+
+        # 审计日志
+        if self.audit_logger:
+            self.audit_logger.log(
+                "induce_dissonance",
+                {"magnitude": magnitude, "belief_domain": belief_domain},
+                self.snapshot(),
+            )
 
     # ==================================================================
     # 快照：便于外部观察

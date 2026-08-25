@@ -23,6 +23,7 @@ import os
 import random
 import string
 import threading
+import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -185,8 +186,43 @@ def _new_session_id():
 def get_session(session_id):
     with _lock:
         if session_id not in SESSIONS:
-            SESSIONS[session_id] = SPLMinorPureCore(minor_mode=True)
+            SESSIONS[session_id] = SPLMinorPureCore(
+                minor_mode=True,
+                audit_log_dir="logs",
+                audit_session_id=session_id,
+            )
         return SESSIONS[session_id]
+
+
+# ================================================================
+# 请求级审计日志（用户输入 → 意图 → 回复，完整对话链）
+# ================================================================
+REQUEST_LOG_DIR = "logs"
+_request_log_lock = threading.Lock()
+
+
+def log_request(session_id, user_text, intent, crisis_cat, result):
+    """记录一次完整的用户请求-响应，写入会话级请求日志。"""
+    try:
+        os.makedirs(REQUEST_LOG_DIR, exist_ok=True)
+        path = os.path.join(REQUEST_LOG_DIR, f"request-{session_id}.jsonl")
+        entry = {
+            "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+            "session": session_id,
+            "user_input": user_text,
+            "intent": intent,
+            "crisis_category": crisis_cat,
+            "crisis_triggered": crisis_cat is not None,
+            "reply": result.get("reply"),
+            "guardian_notified": result.get("guardian_notified", False),
+            "risk_level": result.get("state", {}).get("risk_level"),
+            "event": result.get("event"),
+        }
+        with _request_log_lock:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 请求日志失败不阻断服务
 
 
 # 监护人通知钩子（部署方接入：短信/邮件/工单）。此处仅打点 + 标记。
@@ -221,7 +257,7 @@ def handle_chat(user_text, session_id):
     # L1 守门：红线命中 → 硬中断
     crisis_cat, crisis_script = gate_crisis(user_text)
     if crisis_cat:
-        return {
+        result = {
             "session_id": session_id,
             "crisis": True,
             "crisis_category": crisis_cat,
@@ -229,6 +265,8 @@ def handle_chat(user_text, session_id):
             "guardian_notified": False,   # 高危显式告白类走引擎 HIGH 才标记；此处由上层决定
             "state": state_vars(core.snapshot()),
         }
+        log_request(session_id, user_text, None, crisis_cat, result)
+        return result
 
     # L3 监护人钩子：引擎侧 HIGH 首次升级时打点（不阻断主流程）
     core.guardian_callback = _guardian_notify
@@ -276,7 +314,7 @@ def handle_chat(user_text, session_id):
         guardian = False
 
     state["session_seconds"] = snap["protective"]["session_seconds"]
-    return {
+    result = {
         "session_id": session_id,
         "crisis": False,
         "event": event,
@@ -287,6 +325,8 @@ def handle_chat(user_text, session_id):
         "prompt": None,   # 弱化版不输出风格指令；台词由上层 LLM 生成时可按需扩展
         "new_session": created,
     }
+    log_request(session_id, user_text, event, None, result)
+    return result
 
 
 # ================================================================
