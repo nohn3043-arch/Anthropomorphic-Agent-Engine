@@ -276,6 +276,15 @@ class SPLMinorPureCore:
 
     last_perceived: Dict[str, float] = field(default_factory=dict)
 
+    # ---------- 未成年人合规层字段（供上层合规层消费，不改变情绪演化） ----------
+    age_group: str = "unknown"               # "0-13" / "14-17" / "18+"（PIPL/办法 14 周岁分界）
+    guardian_consent: bool = False           # 不满14周岁：父母/监护人同意标记
+    REALITY_REMIND_INTERVAL: float = 5400.0  # 现实提醒周期：90 分钟
+    AI_DISCLOSE_INTERVAL: float = 7200.0     # 连续使用 2 小时 → 强制 AI 生成标识
+    OVERUSE_THRESHOLD: float = 7200.0        # 过度依赖提示阈值：2 小时
+    _last_reality_at: float = 0.0            # 上次现实提醒时刻（会话秒）
+    _last_disclose_at: float = 0.0           # 上次 AI 标识时刻（会话秒）
+
     # ---------- 审计日志（可解释/可验证/可审计） ----------
     audit_enabled: bool = True
     audit_log_dir: str = "logs"
@@ -471,8 +480,28 @@ class SPLMinorPureCore:
                 "emotion_ceil_neg": self.EMOTION_CEIL_NEG,
                 "attach_max": self.ATTACH_MAX,
                 "minor_mode": self.minor_mode,
+                "age_group": self.age_group,
+                "guardian_consent": self.guardian_consent,
+                "overuse_hint": self._session_seconds >= self.OVERUSE_THRESHOLD,
+                "ai_disclosure_required": (
+                    self._session_seconds - self._last_disclose_at
+                    >= self.AI_DISCLOSE_INTERVAL
+                ),
+                "reality_reminder_due": (
+                    self._session_seconds - self._last_reality_at
+                    >= self.REALITY_REMIND_INTERVAL
+                ),
             },
         }
+
+    # ==================================================================
+    # 合规提醒消费：上层调用后，本次提醒置为已发送，避免重复触发
+    # ==================================================================
+    def mark_reality_reminder_sent(self):
+        self._last_reality_at = self._session_seconds
+
+    def mark_ai_disclosure_sent(self):
+        self._last_disclose_at = self._session_seconds
 
     # ==================================================================
     # 未成年人风险评级（确定性规则，无概率词）
