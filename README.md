@@ -133,6 +133,80 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 
 <p align="center">— ✦ —</p>
 
+## ✦ 未成年合规保护版（minor-protection）
+
+面向 **未成年人（&lt;18）情感陪伴**场景的合规弱化变体，位于 `minor-protection/`，零第三方依赖（纯标准库）。它把主引擎 `SPLPureCoreV7_3` 做**机制级降险**而非输出端加壳，并内建一套可演示的未成年合规骨架。
+
+> ⚠️ 合规声明：本目录为**研究 / 演示用合规骨架**，用于展示未成年人情感陪伴所应具备的保护能力与数据机制；正式对外提供服务前，须完成法务审查、DPIA / 安全评估 / 算法备案，并接入真实监护人通知通道与地区化危机资源。
+
+### 与主引擎的差异（机制降险）
+
+| 维度 | 主引擎 `SPL-anthropic-engine.py` | 未成年版 `minor-protection/` |
+|---|---|---|
+| 创伤节点 / 创伤累积 | 建模 | 移除（不模拟创伤） |
+| 爆发机制（压抑-反弹 / 隐压雪崩 / 否认-现实侵入） | 建模 | 移除，代之以温和泄放 |
+| 羞耻对自尊侵蚀 | 完整 | 增益 ×0.4，阈值抬升至 0.7 |
+| 负面情绪钳位 | 1.0 | 0.75 |
+| 依恋 / 信任封顶 | 1.0 | 0.8 |
+| 自尊下限 | 0.0 | 0.15（负向冲击 ×0.5） |
+| 人格选项 | 全 | 不含 intimate / confrontational |
+
+### 四层保护
+
+- **L0 年龄识别 + 监护人同意**：首会话强制选择年龄段；不满 14 周岁须监护人知情同意（`/api/consent`），记录同意时间戳与关系声明，并勾选服务协议 / 隐私告知。
+- **L1 输入守门**：红线词库（自伤自杀 / 暴力暴恐 / 违法诱导 / 隐私套取 / 未成年亲密告白）命中 → 硬中断 + 危机话术（`gate_crisis`）。
+- **L2 引擎弱化**：见上表机制降险。
+- **L3 危机信号**：`protective.risk_level == HIGH` → 关怀话术 + 监护人通知标记 + webhook 回调 + 转介统计（`_guardian_notify`）。
+
+### 合规能力清单（对照条文 / 法域）
+
+| 能力 | 对应条款 / 法域 | 实现 |
+|---|---|---|
+| 年龄识别 + &lt;14 岁监护人同意 | 《办法》第14/17条 · COPPA | `/api/consent` |
+| 监护人 / 紧急联系人登记 | 《办法》第12条 | `/api/guardian/register` |
+| 危机真实通知（webhook / 短信 / 邮件） | 《办法》第13条 | `_guardian_notify` + `_post_webhook` |
+| 危机转介统计（年度报告聚合） | CA/CO/GA/OR/WA | `/api/referrals` + `referrals.jsonl` |
+| AI 生成标识（每小时） | 《办法》第18条 · CT/GA/HI/WA | `AI_DISCLOSE_INTERVAL=3600` |
+| 现实提醒 / 时长限制 | 《办法》第14/18条 | 会话级 banner + rest_hint |
+| 数据复制 / 删除 / 留存期清理 | 《办法》第16条 · GDPR Art.17 | `/api/export` `/api/delete` `cleanup_expired_logs` |
+| 输入守门 + 输出守门 | 《办法》第8/13条 | `gate_crisis` + `gate_output` |
+| 便捷退出 | 《办法》第19条 | `/api/logout` |
+| 服务协议 + 儿童隐私告知 | 《办法》第12条 · COPPA | `/api/terms` |
+| 申诉 / 举报入口 | 《办法》第21条 | `/api/complain` |
+| 日志脱敏落盘 | 《办法》第16/17条 | `_mask` |
+| 适用性披露 | CA SB 243 | 新会话首条 banner |
+
+### 运行
+
+```bash
+cd minor-protection
+python "SPL-anthropic-minor-server.py"     # 默认 http://localhost:8788
+```
+
+主要 API：
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/api/chat` | POST | 对话（自动走四层保护） |
+| `/api/consent` | POST | 年龄确认 + 监护人同意 + 协议勾选 |
+| `/api/guardian/register` | POST | 登记监护人 / 紧急联系人（webhook 等） |
+| `/api/guardian/block` | POST | 监护人屏蔽角色 |
+| `/api/state` | GET | 监护人使用概览 |
+| `/api/export` `/api/delete` | GET/POST | 数据复制 / 删除 |
+| `/api/logout` | POST | 便捷退出 |
+| `/api/terms` | GET | 服务协议与隐私告知 |
+| `/api/referrals` | GET | 危机转介统计 |
+| `/api/complain` | POST | 申诉 / 举报 |
+
+### 已知边界与合规声明
+
+- 年龄与监护人同意目前为**用户自报 + 声明**，未接权威身份 / 监护人验证——正式商用须接入实名与监护人核验。
+- 危机热线索引可配置（环境变量 `SPL_MINOR_CRISIS_HOTLINE`，默认 12356，可改 988 等）。
+- 输出守门针对内置占位台词与接入方 LLM 产出一致生效；接真实 LLM 时建议再叠加服务端内容审核。
+- 本版为合规能力骨架，不代表已完成法域内全部监管义务。
+
+<p align="center">— ✦ —</p>
+
 ## ✦ 生态
 
 ANTHROPOMORPHIC-AGENT-ENGINE 是 NOHN AI 生态的一员——围绕第二视角因果审计与确定性执行构建的项目家族：

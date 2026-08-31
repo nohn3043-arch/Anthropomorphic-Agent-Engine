@@ -235,7 +235,6 @@ class SPLPureCoreV7_3:  # 类名保持兼容
     SUPPRESSION_DRAIN: float = 0.02
     SUPPRESSION_BURST_COOLDOWN: float = 30.0
     suppression_burst_cd: float = 0.0
-    _suppressing_negativity: bool = False
 
     # ---------- 隐压雪崩 ----------
     latent_pressure: float = 0.0
@@ -816,13 +815,10 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         will_to_suppress = (self.energy / 100.0) * (0.3 + self.psychological_resilience)
         suppressed_here = neg * will_to_suppress * 0.5
         if suppressed_here > 0.05:
-            self._suppressing_negativity = True
             self.suppression_load += suppressed_here
             self.fluid["愤怒"] *= (1.0 - will_to_suppress * 0.6)
             self.fluid["恐惧"] *= (1.0 - will_to_suppress * 0.4)
             self.fluid["张力"] = min(1.0, self.fluid["张力"] + suppressed_here * 0.3)
-        else:
-            self._suppressing_negativity = False
 
         if self.suppression_load >= self.SUPPRESSION_THRESHOLD and self.suppression_burst_cd <= 0:
             self._trigger_burst()
@@ -855,9 +851,6 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 
     def _psychological_dt_for(self, real_dt: float) -> float:
         return real_dt * self.psy_dilation / (0.1 + self.dynamic_viscosity)
-
-    def _psychological_dt(self) -> float:
-        return self._psychological_dt_for(1.0)
 
     # ==================================================================
     # 9. 流体连续松弛
@@ -1286,19 +1279,6 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         self.energy = max(self.ENERGY_MIN, self.energy - load * 6)
         self.time_compress_base = min(1.0, self.time_compress_base + 0.5)
 
-    # ==================================================================
-    # 兼容旧名
-    # ==================================================================
-    def _apply_forgetting_curve(self):
-        self._forget_over(1.0)
-
-    def _update_time(self):
-        self._advance_time()
-
-    def _update_dynamic_viscosity_old(self):
-        self._update_dynamic_viscosity()
-
-
 # ================================================================
 # LLM 适配器接口 — 可插拔，支持多个 LLM 后端
 # ================================================================
@@ -1309,14 +1289,12 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 #   或使用 ChainAdapter 自动回退：
 #   adapter = ChainAdapter(
 #     primary=OpenAIAdapter(api_key="sk-..."),
-#     fallback=LocalFallbackAdapter(engine)
+#     fallback=ClaudeAdapter(api_key="sk-...")
 #   )
 #   line = adapter.generate(prompt_injection)
 # ================================================================
 
-import json
 from abc import ABC, abstractmethod
-from typing import Optional
 
 
 class LLMAdapter(ABC):
@@ -1472,41 +1450,6 @@ class ClaudeAdapter(LLMAdapter):
             return None
 
 
-class LocalFallbackAdapter(LLMAdapter):
-    """
-    本地确定性回退适配器。
-
-    不依赖任何外部 API，调用 LanguageStyleEngine.generate_line() 产出
-    语法通顺但无张力的模板台词。适合离线/隐私/零成本场景。
-    """
-
-    def __init__(self, engine=None):
-        """
-        Args:
-            engine: LanguageStyleEngine 实例。若为 None，延迟到 generate() 时传入。
-        """
-        self._engine = engine
-
-    @property
-    def engine(self):
-        return self._engine
-
-    @engine.setter
-    def engine(self, value):
-        self._engine = value
-
-    def generate(self, prompt_injection: str = "",
-                 style_example: str = "",
-                 system_prompt: str = "",
-                 temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
-        """本地回退无法从 prompt_injection 自动生成，线程安全需外部传入 engine。"""
-        # LocalFallbackAdapter 不能接收 prompt_injection 自动生成台词，
-        # 它需要 LanguageStyleEngine.generate_line(core_snapshot, expression) 才能工作。
-        # 这里的 generate() 实现只返回 None，表示"需要外部调用 generate_line"。
-        return None
-
-
 class ChainAdapter(LLMAdapter):
     """
     链式适配器：先尝试主 LLM，失败后自动回退。
@@ -1514,7 +1457,7 @@ class ChainAdapter(LLMAdapter):
     用法：
         adapter = ChainAdapter(
             primary=OpenAIAdapter(api_key="sk-..."),
-            fallback=LocalFallbackAdapter(engine)
+            fallback=ClaudeAdapter(api_key="sk-...")
         )
         line = adapter.generate(prompt_injection)
         if line is None:

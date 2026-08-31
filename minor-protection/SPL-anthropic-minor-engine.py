@@ -279,9 +279,12 @@ class SPLMinorPureCore:
     # ---------- 未成年人合规层字段（供上层合规层消费，不改变情绪演化） ----------
     age_group: str = "unknown"               # "0-13" / "14-17" / "18+"（PIPL/办法 14 周岁分界）
     guardian_consent: bool = False           # 不满14周岁：父母/监护人同意标记
+    guardian_contact: Dict[str, str] = field(default_factory=dict)  # 监护人/紧急联系人 {phone,email,webhook}（第12条）
     REALITY_REMIND_INTERVAL: float = 5400.0  # 现实提醒周期：90 分钟
-    AI_DISCLOSE_INTERVAL: float = 7200.0     # 连续使用 2 小时 → 强制 AI 生成标识
+    AI_DISCLOSE_INTERVAL: float = 3600.0     # 连续使用 1 小时 → 强制 AI 生成标识（对齐 hourly 披露要求）
     OVERUSE_THRESHOLD: float = 7200.0        # 过度依赖提示阈值：2 小时
+    retention_days: int = 180                # 审计日志留存期（天），到期自动清理（第16条存储限制）
+    _exit_requested: bool = False            # 第19条：便捷退出标记
     _last_reality_at: float = 0.0            # 上次现实提醒时刻（会话秒）
     _last_disclose_at: float = 0.0           # 上次 AI 标识时刻（会话秒）
 
@@ -482,6 +485,8 @@ class SPLMinorPureCore:
                 "minor_mode": self.minor_mode,
                 "age_group": self.age_group,
                 "guardian_consent": self.guardian_consent,
+                "guardian_contact": dict(self.guardian_contact),
+                "exit_requested": self._exit_requested,
                 "overuse_hint": self._session_seconds >= self.OVERUSE_THRESHOLD,
                 "ai_disclosure_required": (
                     self._session_seconds - self._last_disclose_at
@@ -502,6 +507,40 @@ class SPLMinorPureCore:
 
     def mark_ai_disclosure_sent(self):
         self._last_disclose_at = self._session_seconds
+
+    # ==================================================================
+    # 第19条：便捷退出 —— 置位退出标记，上层据此结束会话 / 停止服务
+    # ==================================================================
+    def exit_service(self) -> bool:
+        """请求退出陪伴服务；返回 True 表示已接受退出。"""
+        self._exit_requested = True
+        if self.audit_logger:
+            self.audit_logger.log("exit_service", {}, self.snapshot())
+        return self._exit_requested
+
+    # ==================================================================
+    # 第16条：存储限制 —— 清理超过留存期的审计日志文件
+    # ==================================================================
+    def cleanup_expired_logs(self) -> int:
+        """删除创建时间早于 retention_days 的审计日志文件；返回删除数量。"""
+        if not self.audit_enabled:
+            return 0
+        cutoff = time.time() - self.retention_days * 86400.0
+        removed = 0
+        try:
+            for fname in os.listdir(self.audit_log_dir):
+                if not fname.endswith(".jsonl"):
+                    continue
+                path = os.path.join(self.audit_log_dir, fname)
+                try:
+                    if os.path.getmtime(path) < cutoff:
+                        os.remove(path)
+                        removed += 1
+                except OSError:
+                    continue
+        except OSError:
+            pass
+        return removed
 
     # ==================================================================
     # 未成年人风险评级（确定性规则，无概率词）
