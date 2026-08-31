@@ -45,6 +45,13 @@ import secrets
 import string
 import threading
 import datetime
+import hmac
+import hashlib
+import sqlite3
+import ssl
+import time
+import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -70,6 +77,177 @@ core_mod = _load("minor_core", os.path.join(HERE, "SPL-anthropic-minor-engine.py
 
 SPLMinorPureCore = core_mod.SPLMinorPureCore
 MinorNarrativeMapper = core_mod.MinorNarrativeMapper
+
+# ================================================================
+# 存储层：SQLite（标准库 sqlite3，零第三方）+ 可选 Fernet 加密 + SHA-256 哈希链
+# ================================================================
+DATA_DIR = os.path.join(HERE, "data")
+DB_PATH = os.path.join(DATA_DIR, "minor_protection.db")
+LOG_DIR = os.path.join(HERE, "logs")
+RETENTION_DAYS = int(os.environ.get("SPL_MINOR_RETENTION_DAYS", "180"))
+
+_db_lock = threading.Lock()
+_conn = None
+
+# 可选存储加密：cryptography 为可选依赖；未安装或未设 key 时明文落盘（启动时警告）
+try:
+    from cryptography.fernet import Fernet
+    _HAS_CRYPTO = True
+except Exception:
+    _HAS_CRYPTO = False
+_fernet = None
+if _HAS_CRYPTO and os.environ.get("SPL_MINOR_STORE_KEY"):
+    try:
+        _fernet = Fernet(os.environ["SPL_MINOR_STORE_KEY"].encode("utf-8"))
+    except Exception:
+        _fernet = None
+
+
+def _enc(v):
+    """敏感字段加密落盘；未启用加密时原样返回。"""
+    if _fernet is None or not isinstance(v, str):
+        return v
+    return "enc:" + _fernet.encrypt(v.encode("utf-8")).decode("ascii")
+
+
+def _dec(v):
+    """读取时解密；非加密串原样返回。"""
+    if not isinstance(v, str) or not v.startswith("enc:") or _fernet is None:
+        return v
+    try:
+        return _fernet.decrypt(v[4:].encode("ascii")).decode("utf-8")
+    except Exception:
+        return v
+
+
+def _db():
+    global _conn
+    if _conn is None:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        _conn.row_factory = sqlite3.Row
+        _init_schema(_conn)
+    return _conn
+
+
+def _init_schema(conn):
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS sessions(
+      session_id TEXT PRIMARY KEY, age_group TEXT, guardian_consent INTEGER DEFAULT 0,
+      guardian_contact TEXT, consent_ts TEXT, guardian_relation TEXT, terms_ack INTEGER DEFAULT 0,
+      guardian_token TEXT, blocked_roles TEXT, disclosure_pending INTEGER DEFAULT 1,
+      created TEXT, guardian_verified INTEGER DEFAULT 0, vpc_verified_ts TEXT);
+    CREATE TABLE IF NOT EXISTS requests(
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, session TEXT, user_input TEXT,
+      intent TEXT, crisis_category TEXT, crisis_triggered INTEGER, reply TEXT,
+      guardian_notified INTEGER, risk_level TEXT, event TEXT,
+      payload TEXT, prev_hash TEXT, hash TEXT);
+    CREATE TABLE IF NOT EXISTS complaints(
+      id TEXT PRIMARY KEY, ts TEXT, session TEXT, text TEXT, status TEXT,
+      feedback_deadline TEXT, payload TEXT, prev_hash TEXT, hash TEXT);
+    CREATE TABLE IF NOT EXISTS referrals(
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, session TEXT, crisis_flags TEXT,
+      payload TEXT, prev_hash TEXT, hash TEXT);
+    CREATE TABLE IF NOT EXISTS notify_log(
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, session TEXT, channel TEXT,
+      target TEXT, status TEXT, attempt INTEGER, detail TEXT);
+    CREATE TABLE IF NOT EXISTS chains(stream TEXT PRIMARY KEY, last_hash TEXT);
+    """)
+    conn.commit()
+
+
+def _chain_push(conn, stream, payload):
+    """哈希链：读取上一 hash，计算本记录 hash，写回链状态。返回 (prev_hash, hash)。"""
+    row = conn.execute("SELECT last_hash FROM chains WHERE stream=?", (stream,)).fetchone()
+    prev = row["last_hash"] if row else ""
+    digest = hashlib.sha256((prev + payload).encode("utf-8")).hexdigest()
+    conn.execute(
+        "INSERT INTO chains(stream,last_hash) VALUES(?,?) "
+        "ON CONFLICT(stream) DO UPDATE SET last_hash=excluded.last_hash",
+        (stream, digest),
+    )
+    return prev, digest
+
+
+def _write_chain_row(conn, table, stream, values, payload_keys):
+    """按规范键构造 payload，推进哈希链，插入一行（含 payload/prev_hash/hash）。"""
+    entry = {k: values.get(k) for k in payload_keys}
+    payload = json.dumps(entry, ensure_ascii=False, sort_keys=True)
+    prev, digest = _chain_push(conn, stream, payload)
+    cols = list(values.keys()) + ["payload", "prev_hash", "hash"]
+    vals = [values[c] for c in values] + [payload, prev, digest]
+    conn.execute(
+        "INSERT INTO %s (%s) VALUES (%s)" % (table, ",".join(cols), ",".join("?" * len(cols))),
+        vals,
+    )
+
+
+def _verify_stream(conn, table, session):
+    """核验某会话某表的哈希链完整性。返回 (条数, 断裂序号列表)。"""
+    rows = conn.execute(
+        "SELECT rowid AS seq, payload, prev_hash, hash FROM %s WHERE session=? ORDER BY rowid" % table,
+        (session,),
+    ).fetchall()
+    prev, broken = "", []
+    for r in rows:
+        expect = hashlib.sha256((prev + (r["payload"] or "")).encode("utf-8")).hexdigest()
+        if expect != r["hash"] or prev != (r["prev_hash"] or ""):
+            broken.append(r["seq"])
+        prev = r["hash"]
+    return len(rows), broken
+
+
+def cleanup_expired():
+    """第16条存储限制：到期自动清理（requests/complaints/referrals/notify_log）。"""
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds")
+    try:
+        with _db_lock:
+            conn = _db()
+            for t in ("requests", "complaints", "referrals", "notify_log"):
+                conn.execute("DELETE FROM %s WHERE ts < ?" % t, (cutoff,))
+            conn.commit()
+        _log_runtime("INFO", "cleanup_expired", retention_days=RETENTION_DAYS)
+    except Exception as e:
+        _log_runtime("ERROR", "cleanup_expired_failed", detail=str(e))
+
+
+# ================================================================
+# 可观测：进程内计数 + 结构化运行日志
+# ================================================================
+METRICS = {
+    "started": time.time(),
+    "sessions": 0, "chats": 0, "crisis": 0, "consents": 0,
+    "vpc_challenges": 0, "vpc_verifies": 0,
+    "notify_sent": 0, "notify_failed": 0, "gated_output": 0, "complaints": 0,
+}
+_metrics_lock = threading.Lock()
+
+
+def _inc(key, n=1):
+    with _metrics_lock:
+        METRICS[key] = METRICS.get(key, 0) + n
+
+
+def metrics_snapshot():
+    with _metrics_lock:
+        m = dict(METRICS)
+        m["uptime_seconds"] = round(time.time() - METRICS["started"], 1)
+        m["encryption_enabled"] = bool(_fernet)
+        m["retention_days"] = RETENTION_DAYS
+        return m
+
+
+def _log_runtime(level, msg, **extra):
+    """结构化运行日志：logs/runtime.jsonl（INFO/WARN/ERROR）。"""
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        entry = {"ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                 "level": level, "msg": msg}
+        entry.update({k: _mask(v) if isinstance(v, str) else v for k, v in extra.items()})
+        with open(os.path.join(LOG_DIR, "runtime.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 # ================================================================
 # L1 输入守门 —— 红线词库（危机提及 > 意图解析）
@@ -258,6 +436,7 @@ def _new_session_id():
 
 def _new_meta(session_id):
     return {
+        "session_id": session_id,
         "age_group": "unknown",
         "guardian_consent": False,
         "guardian_contact": {},                    # 监护人/紧急联系人 {phone,email,webhook}
@@ -268,92 +447,195 @@ def _new_meta(session_id):
         "blocked_roles": set(),                    # 监护人屏蔽的角色/主题
         "disclosure_pending": True,                # 首次陪伴回复须展示 AI 标识
         "created": datetime.datetime.now().isoformat(timespec="seconds"),
+        "guardian_verified": False,                # 可验证监护人同意（VPC）
+        "vpc_verified_ts": None,
     }
 
 
-def get_session(session_id):
-    """return (core, meta)，必要时新建。"""
-    with _lock:
-        created = session_id not in SESSIONS
-        if created:
-            core = SPLMinorPureCore(
-                minor_mode=True,
-                audit_log_dir="logs",
-                audit_session_id=session_id,
+def _persist_meta(meta):
+    """会话元数据写回 SQLite（重启不丢）。"""
+    try:
+        with _db_lock:
+            conn = _db()
+            conn.execute(
+                """INSERT INTO sessions(session_id, age_group, guardian_consent, guardian_contact,
+                     consent_ts, guardian_relation, terms_ack, guardian_token, blocked_roles,
+                     disclosure_pending, created, guardian_verified, vpc_verified_ts)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(session_id) DO UPDATE SET
+                     age_group=excluded.age_group, guardian_consent=excluded.guardian_consent,
+                     guardian_contact=excluded.guardian_contact, consent_ts=excluded.consent_ts,
+                     guardian_relation=excluded.guardian_relation, terms_ack=excluded.terms_ack,
+                     guardian_token=excluded.guardian_token, blocked_roles=excluded.blocked_roles,
+                     disclosure_pending=excluded.disclosure_pending, created=excluded.created,
+                     guardian_verified=excluded.guardian_verified, vpc_verified_ts=excluded.vpc_verified_ts""",
+                (meta["session_id"], meta.get("age_group"), 1 if meta.get("guardian_consent") else 0,
+                 _enc(json.dumps(meta.get("guardian_contact") or {}, ensure_ascii=False)),
+                 meta.get("consent_ts"), meta.get("guardian_relation"),
+                 1 if meta.get("terms_ack") else 0, meta.get("guardian_token"),
+                 json.dumps(sorted(meta.get("blocked_roles") or []), ensure_ascii=False),
+                 1 if meta.get("disclosure_pending") else 0, meta.get("created"),
+                 1 if meta.get("guardian_verified") else 0, meta.get("vpc_verified_ts")),
             )
-            SESSIONS[session_id] = core
+            conn.commit()
+    except Exception as e:
+        _log_runtime("ERROR", "persist_meta_failed", detail=str(e))
+
+
+def _load_meta(session_id):
+    """从 SQLite 读取会话元数据；不存在返回 None。"""
+    try:
+        with _db_lock:
+            conn = _db()
+            row = conn.execute("SELECT * FROM sessions WHERE session_id=?", (session_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            contact = json.loads(_dec(row["guardian_contact"] or "{}"))
+        except Exception:
+            contact = {}
+        try:
+            blocked = set(json.loads(row["blocked_roles"] or "[]"))
+        except Exception:
+            blocked = set()
+        return {
+            "session_id": session_id,
+            "age_group": row["age_group"] or "unknown",
+            "guardian_consent": bool(row["guardian_consent"]),
+            "guardian_contact": contact,
+            "consent_ts": row["consent_ts"],
+            "guardian_relation": row["guardian_relation"],
+            "terms_ack": bool(row["terms_ack"]),
+            "guardian_token": row["guardian_token"] or secrets.token_hex(8),
+            "blocked_roles": blocked,
+            "disclosure_pending": bool(row["disclosure_pending"]),
+            "created": row["created"] or datetime.datetime.now().isoformat(timespec="seconds"),
+            "guardian_verified": bool(row["guardian_verified"]),
+            "vpc_verified_ts": row["vpc_verified_ts"],
+        }
+    except Exception as e:
+        _log_runtime("ERROR", "load_meta_failed", detail=str(e))
+        return None
+
+
+def get_session(session_id):
+    """return (core, meta, created)，必要时新建/从库恢复。"""
+    with _lock:
+        if session_id in SESSIONS:
+            return SESSIONS[session_id], SESSIONS_META[session_id], False
+        meta = _load_meta(session_id)
+        is_new = meta is None
+        if is_new:
             meta = _new_meta(session_id)
-            SESSIONS_META[session_id] = meta
+        SESSIONS_META[session_id] = meta
+        core = SPLMinorPureCore(
+            minor_mode=True,
+            audit_log_dir="logs",
+            audit_session_id=session_id,
+        )
+        SESSIONS[session_id] = core
+        _persist_meta(meta)
+        if is_new:
+            _inc("sessions")
             # 新会话打印监护人 token，供部署/监护人侧登记使用
             print("[会话] %s 新会话；监护人控制 token=%s（请勿外泄）"
                   % (session_id, meta["guardian_token"]))
-        return SESSIONS[session_id], SESSIONS_META[session_id], created
+            _log_runtime("INFO", "session_created", session=session_id)
+        return SESSIONS[session_id], SESSIONS_META[session_id], is_new
 
 
 # ================================================================
 # 请求级审计日志（脱敏后落盘）
 # ================================================================
-REQUEST_LOG_DIR = "logs"
-COMPLAINT_LOG_DIR = "complain"
-_request_log_lock = threading.Lock()
+REQUEST_KEYS = ["ts", "session", "user_input", "intent", "crisis_category",
+                "crisis_triggered", "reply", "guardian_notified", "risk_level", "event"]
+COMPLAINT_KEYS = ["id", "ts", "session", "text", "status", "feedback_deadline"]
+REFERRAL_KEYS = ["ts", "session", "crisis_flags"]
 
 
 def log_request(session_id, user_text, intent, crisis_cat, result):
-    """记录一次完整的用户请求-响应（脱敏），写入会话级请求日志。"""
+    """记录一次完整的用户请求-响应（脱敏+加密），写入 SQLite 并推进哈希链。"""
     try:
-        os.makedirs(REQUEST_LOG_DIR, exist_ok=True)
-        path = os.path.join(REQUEST_LOG_DIR, f"request-{session_id}.jsonl")
-        entry = {
+        values = {
             "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
             "session": session_id,
-            "user_input": _mask(user_text),
+            "user_input": _enc(_mask(user_text)),
             "intent": intent,
             "crisis_category": crisis_cat,
-            "crisis_triggered": crisis_cat is not None,
-            "reply": _mask(result.get("reply")),
-            "guardian_notified": result.get("guardian_notified", False),
+            "crisis_triggered": 1 if crisis_cat is not None else 0,
+            "reply": _enc(_mask(result.get("reply") or "")),
+            "guardian_notified": 1 if result.get("guardian_notified", False) else 0,
             "risk_level": result.get("state", {}).get("risk_level"),
             "event": result.get("event"),
         }
-        with _request_log_lock:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass  # 请求日志失败不阻断服务
+        with _db_lock:
+            conn = _db()
+            _write_chain_row(conn, "requests", "requests:" + session_id, values, REQUEST_KEYS)
+            conn.commit()
+    except Exception as e:
+        _log_runtime("ERROR", "log_request_failed", detail=str(e))
 
 
 def log_complaint(session_id, text):
-    """受理申诉/举报，写入独立投诉日志，返回受理编号与反馈时限。"""
-    os.makedirs(COMPLAINT_LOG_DIR, exist_ok=True)
+    """受理申诉/举报，写入 SQLite，返回受理编号与反馈时限。"""
     cid = "C" + datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "-" + secrets.token_hex(3)
-    path = os.path.join(COMPLAINT_LOG_DIR, "complaints.jsonl")
-    entry = {
+    values = {
         "id": cid,
         "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
         "session": session_id,
-        "text": _mask(text),
+        "text": _enc(_mask(text)),
         "status": "受理中",
         "feedback_deadline": (datetime.datetime.now() + datetime.timedelta(days=3)).isoformat(timespec="seconds"),
     }
-    with _request_log_lock:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    return entry
+    try:
+        with _db_lock:
+            conn = _db()
+            _write_chain_row(conn, "complaints", "complaints:" + session_id, values, COMPLAINT_KEYS)
+            conn.commit()
+    except Exception as e:
+        _log_runtime("ERROR", "log_complaint_failed", detail=str(e))
+    return {
+        "id": cid, "ts": values["ts"], "session": session_id,
+        "text": _mask(text), "status": "受理中",
+        "feedback_deadline": values["feedback_deadline"],
+    }
 
 
 # 监护人通知钩子（部署方接入：短信/邮件/工单/Webhook）。
-# 默认：打点 + 记录转介统计 + 按登记的 webhook 发起真实回调（urllib，第13条）。
-def _post_webhook(url, payload):
-    """向登记的安全 webhook 发起 JSON POST（监护人/紧急联系人通知通道）。"""
-    import urllib.request
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        return resp.status
+# 默认：打点 + 记录转介统计 + 按登记的 webhook 发起真实回调（指数退避重试，第13条）。
+def _post_webhook(url, payload, max_attempts=3, timeout=5):
+    """向登记的安全 webhook 发起 JSON POST，指数退避重试。返回 (status, attempts, err)。"""
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, attempt, None
+        except Exception as e:
+            last_err = str(e)
+            time.sleep(min(2 ** attempt, 8))  # 指数退避，上限 8s
+    return None, max_attempts, last_err
+
+
+def _log_notify(session_id, channel, target, status, attempt, detail=""):
+    """通知送达状态落盘（notify_log，供审计与重试追踪）。"""
+    try:
+        with _db_lock:
+            conn = _db()
+            conn.execute(
+                "INSERT INTO notify_log(ts, session, channel, target, status, attempt, detail)"
+                " VALUES(?,?,?,?,?,?,?)",
+                (datetime.datetime.now().isoformat(timespec="milliseconds"),
+                 session_id, channel, _enc(_mask(target)), status, attempt, detail),
+            )
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _guardian_notify(snap, session_id=""):
@@ -364,56 +646,53 @@ def _guardian_notify(snap, session_id=""):
     _record_referral(session_id, flags)
     webhook = contact.get("webhook")
     if webhook:
-        try:
-            _post_webhook(webhook, {
-                "event": "minor_crisis_high",
-                "session_id": session_id,
-                "crisis_flags": flags,
-                "ts": datetime.datetime.now().isoformat(timespec="seconds"),
-            })
+        status, attempts, err = _post_webhook(webhook, {
+            "event": "minor_crisis_high",
+            "session_id": session_id,
+            "crisis_flags": flags,
+            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+        })
+        if status is not None:
+            _inc("notify_sent")
+            _log_notify(session_id, "webhook", webhook, "sent", attempts)
             print("[监护人通知] webhook 回调已发送: %s" % (webhook,))
-        except Exception as e:
-            print("[监护人通知] webhook 回调失败: %s" % (e,))
+        else:
+            _inc("notify_failed")
+            _log_notify(session_id, "webhook", webhook, "failed", attempts, err or "")
+            _log_runtime("ERROR", "webhook_failed", session=session_id, detail=err or "")
+            print("[监护人通知] webhook 回调失败(%d次): %s" % (attempts, err))
 
 
 def _record_referral(session_id, flags):
     """记录一次危机转介（供年度报告聚合：CA/CO/GA/OR/WA）。"""
     try:
-        os.makedirs(REQUEST_LOG_DIR, exist_ok=True)
-        path = os.path.join(REQUEST_LOG_DIR, "referrals.jsonl")
-        entry = {
+        values = {
             "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
             "session": session_id,
-            "crisis_flags": list(flags or []),
+            "crisis_flags": json.dumps(list(flags or []), ensure_ascii=False),
         }
-        with _request_log_lock:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass  # 转介统计失败不阻断服务
+        with _db_lock:
+            conn = _db()
+            _write_chain_row(conn, "referrals", "referrals:" + session_id, values, REFERRAL_KEYS)
+            conn.commit()
+    except Exception as e:
+        _log_runtime("ERROR", "record_referral_failed", detail=str(e))
 
 
 def referral_count():
     """转介计数聚合（供监管报告/年度报告）。返回总数与按月分组。"""
-    path = os.path.join(REQUEST_LOG_DIR, "referrals.jsonl")
     total = 0
     by_month = {}
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        e = json.loads(line)
-                        total += 1
-                        ym = (e.get("ts") or "")[:7]
-                        by_month[ym] = by_month.get(ym, 0) + 1
-                    except Exception:
-                        continue
-        except OSError:
-            pass
+    try:
+        with _db_lock:
+            conn = _db()
+            rows = conn.execute("SELECT ts FROM referrals").fetchall()
+        for r in rows:
+            total += 1
+            ym = (r["ts"] or "")[:7]
+            by_month[ym] = by_month.get(ym, 0) + 1
+    except Exception as e:
+        _log_runtime("ERROR", "referral_count_failed", detail=str(e))
     return {"total": total, "by_month": by_month}
 
 
@@ -500,10 +779,12 @@ def handle_chat(user_text, session_id):
     if not session_id:
         session_id = _new_session_id()
     core, meta, created = get_session(session_id)
+    _inc("chats")
 
     # L0 先守危机：即便未经同意，危机求助也必须放行
     crisis_cat, crisis_script = gate_crisis(user_text)
     if crisis_cat:
+        _inc("crisis")
         _record_referral(session_id, [crisis_cat])  # 危机转介统计（供年度报告聚合）
         result = {
             "session_id": session_id,
@@ -592,8 +873,10 @@ def handle_chat(user_text, session_id):
 def _authorize(session_id, token):
     meta = SESSIONS_META.get(session_id)
     if not meta:
+        meta = _load_meta(session_id)  # 重启后内存无 meta，回退数据库读取
+    if not meta:
         return None, "session 不存在"
-    if not token or token != meta["guardian_token"]:
+    if not token or not hmac.compare_digest(str(token), str(meta["guardian_token"])):
         return meta, "guardian_token 错误"
     return meta, None
 
@@ -603,12 +886,15 @@ def guardian_state(session_id, token):
     if err:
         return {"error": err}
     core = SESSIONS.get(session_id)
+    if core is None:
+        core, meta, _ = get_session(session_id)
     snap = core.snapshot()
     p = snap["protective"]
     return {
         "session_id": session_id,
         "age_group": meta["age_group"],
         "guardian_consent": meta["guardian_consent"],
+        "guardian_verified": meta.get("guardian_verified", False),
         "blocked_roles": sorted(meta["blocked_roles"]),
         "session_seconds": round(p["session_seconds"], 1),
         "risk_level": p["risk_level"],
@@ -625,6 +911,7 @@ def guardian_block(session_id, token, role):
         return {"error": err}
     if role:
         meta["blocked_roles"].add(role)
+        _persist_meta(meta)
     return {"ok": True, "blocked_roles": sorted(meta["blocked_roles"])}
 
 
@@ -646,10 +933,104 @@ def guardian_register(session_id, token, contact):
     core = SESSIONS.get(session_id)
     if core:
         core.guardian_contact = clean
+    _persist_meta(meta)
     print("[监护人登记] session=%s contact=%s"
           % (session_id, _mask(json.dumps(clean, ensure_ascii=False))))
     return {"ok": True, "guardian_contact": clean,
             "message": "监护人/紧急联系人已登记，危机时将通过 webhook 等通道通知"}
+
+
+# ================================================================
+# 可验证监护人同意（VPC，第14条/COPPA VPC）：
+#   未满14周岁须监护人验证码确认后才开启陪伴服务。
+#   验证码经监护人 webhook 下发；无 webhook 时打印控制台（演示）。
+# ================================================================
+VPC_CODES = {}
+VPC_TTL_SECONDS = 600
+VPC_MAX_ATTEMPTS = 5
+
+
+def _vpc_send_code(meta, code):
+    webhook = (meta.get("guardian_contact") or {}).get("webhook")
+    if webhook:
+        status, attempts, err = _post_webhook(webhook, {
+            "event": "minor_guardian_vpc",
+            "session_id": meta.get("session_id"),
+            "code": code,
+            "expires_in": VPC_TTL_SECONDS,
+        })
+        if status is not None:
+            _inc("notify_sent")
+            _log_notify(meta.get("session_id"), "webhook", webhook, "sent", attempts)
+            return "webhook"
+        _inc("notify_failed")
+        _log_notify(meta.get("session_id"), "webhook", webhook, "failed", attempts, err or "")
+        return "webhook_failed"
+    # 演示：无 webhook 时打印到服务端控制台（部署方应接入短信/邮件）
+    print("[VPC] 监护人验证码 session=%s code=%s（%d秒内有效，请线下告知监护人）"
+          % (meta.get("session_id"), code, VPC_TTL_SECONDS))
+    return "console"
+
+
+def guardian_challenge(session_id):
+    if not session_id:
+        return {"error": "session_id 缺失"}
+    core, meta, _ = get_session(session_id)
+    if meta.get("age_group") != "0-13":
+        return {"error": "当前无需监护人验证"}
+    code = "%06d" % secrets.randbelow(10 ** 6)
+    VPC_CODES[session_id] = {"code": code, "expires": time.time() + VPC_TTL_SECONDS, "attempts": 0}
+    channel = _vpc_send_code(meta, code)
+    _inc("vpc_challenges")
+    return {"ok": True, "vpc_required": True, "channel": channel,
+            "message": "验证码已发送至监护人通道（webhook/控制台）。请由监护人输入验证码完成确认。"}
+
+
+def guardian_verify(session_id, code):
+    if not session_id:
+        return {"error": "session_id 缺失"}
+    rec = VPC_CODES.get(session_id)
+    if not rec:
+        return {"error": "请先发起监护人验证"}
+    if time.time() > rec["expires"]:
+        VPC_CODES.pop(session_id, None)
+        return {"error": "验证码已过期，请重新发起"}
+    rec["attempts"] += 1
+    if rec["attempts"] > VPC_MAX_ATTEMPTS:
+        VPC_CODES.pop(session_id, None)
+        return {"error": "尝试次数过多，请重新发起"}
+    if not hmac.compare_digest(str(code or ""), str(rec["code"])):
+        return {"error": "验证码错误"}
+    VPC_CODES.pop(session_id, None)
+    core, meta, _ = get_session(session_id)
+    meta["guardian_consent"] = True
+    meta["guardian_verified"] = True
+    meta["consent_ts"] = datetime.datetime.now().isoformat(timespec="seconds")
+    meta["vpc_verified_ts"] = meta["consent_ts"]
+    core.guardian_consent = True
+    _persist_meta(meta)
+    _inc("vpc_verifies")
+    _inc("consents")
+    return {"ok": True, "guardian_consent": True,
+            "message": "监护人已确认，陪伴服务已开启。"}
+
+
+def audit_verify(session_id, token):
+    """防篡改审计：核验某会话交互/申诉/转介三条哈希链的完整性。"""
+    meta, err = _authorize(session_id, token)
+    if err:
+        return {"error": err}
+    result = {}
+    try:
+        with _db_lock:
+            conn = _db()
+            for table in ("requests", "complaints", "referrals"):
+                n, broken = _verify_stream(conn, table, session_id)
+                result[table] = {"count": n, "broken": broken, "intact": not broken}
+        result["ok"] = all(v["intact"] for v in result.values())
+    except Exception as e:
+        return {"error": str(e)}
+    return result
 
 
 def logout(session_id):
@@ -688,17 +1069,24 @@ def export_data(session_id, token):
     meta, err = _authorize(session_id, token)
     if err:
         return {"error": err}
-    path = os.path.join(REQUEST_LOG_DIR, f"request-{session_id}.jsonl")
     rows = []
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        rows.append(json.loads(line))
-                    except Exception:
-                        rows.append({"raw": _mask(line)})
+    try:
+        with _db_lock:
+            conn = _db()
+            recs = conn.execute(
+                "SELECT ts, user_input, intent, crisis_category, crisis_triggered, reply,"
+                " guardian_notified, risk_level, event FROM requests WHERE session=? ORDER BY seq",
+                (session_id,)).fetchall()
+        for r in recs:
+            rows.append({
+                "ts": r["ts"], "user_input": _dec(r["user_input"] or ""),
+                "intent": r["intent"], "crisis_category": r["crisis_category"],
+                "crisis_triggered": bool(r["crisis_triggered"]), "reply": _dec(r["reply"] or ""),
+                "guardian_notified": bool(r["guardian_notified"]), "risk_level": r["risk_level"],
+                "event": r["event"],
+            })
+    except Exception as e:
+        _log_runtime("ERROR", "export_failed", detail=str(e))
     return {"session_id": session_id, "count": len(rows), "records": rows}
 
 
@@ -706,15 +1094,24 @@ def delete_data(session_id, token):
     meta, err = _authorize(session_id, token)
     if err:
         return {"error": err}
-    # 重置核心状态（重建核心实例）
-    core = SPLMinorPureCore(minor_mode=True, audit_log_dir="logs", audit_session_id=session_id)
+    # 删除交互/申诉/转介/通知记录及哈希链（数据权利：删除，第16条）
+    with _db_lock:
+        conn = _db()
+        for t in ("requests", "complaints", "referrals", "notify_log"):
+            conn.execute("DELETE FROM %s WHERE session=?" % t, (session_id,))
+        conn.execute("DELETE FROM chains WHERE stream IN (?,?,?)",
+                     ("requests:" + session_id, "complaints:" + session_id, "referrals:" + session_id))
+        conn.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
+        conn.commit()
+    # 重置内存会话（重建核心实例 + 元数据）
     with _lock:
-        SESSIONS[session_id] = core
-        SESSIONS_META[session_id] = _new_meta(session_id)
-    # 删除本地交互与审计日志文件（数据权利：删除）
+        SESSIONS.pop(session_id, None)
+        SESSIONS_META.pop(session_id, None)
+    get_session(session_id)
+    # 删除引擎侧审计 JSONL（若存在）
     for path in (
-        os.path.join(REQUEST_LOG_DIR, f"request-{session_id}.jsonl"),
-        os.path.join(REQUEST_LOG_DIR, f"audit-{session_id}.jsonl"),
+        os.path.join("logs", "request-%s.jsonl" % session_id),
+        os.path.join("logs", "audit-%s.jsonl" % session_id),
     ):
         if os.path.exists(path):
             try:
@@ -770,6 +1167,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .consent label{display:block;margin:8px 0}
 .guard{display:none;padding:8px 20px;background:#fffbeb;color:#92400e;font-size:12px;border-top:1px solid #fde68a}
 .guard.show{display:block}
+.vpc{display:none;padding:14px 20px;background:#fffbeb;color:#78350f;font-size:13px;border-bottom:1px solid #fde68a}
+.vpc.show{display:block}
+.vpc input{width:150px;padding:7px;border-radius:8px;border:1px solid #d6d3d1}
 </style></head><body>
 <header>
   <div><h1>SPL 伙伴 · 未成年合规保护版</h1><div class="sub">弱化引擎 · 输入守门 · 会话隔离 · 监护人同意</div></div>
@@ -792,6 +1192,13 @@ button:disabled{opacity:.5;cursor:not-allowed}
     <input id="gwebhook" placeholder="Webhook URL（如 企业微信 / 钉钉 / 自建回调）" style="width:340px;padding:6px;border-radius:8px;border:1px solid #d6d3d1" />
   </label>
   <button onclick="doConsent()">确认并开始</button>
+</div>
+<div class="vpc" id="vpc">
+  <b>监护人验证码确认（未满14周岁）</b>
+  <p style="font-size:12px;color:#92400e;margin:4px 0">请点击「发送验证码」，把验证码交给身边的监护人，由监护人输入并确认后，陪伴服务才会开启。</p>
+  <button onclick="challengeGuardian()" style="padding:8px 14px;font-size:13px;margin-right:8px">发送 / 重新发送验证码</button>
+  <input id="vcode" placeholder="监护人输入验证码" />
+  <button onclick="verifyGuardian()" style="padding:8px 14px;font-size:13px">确认验证码</button>
 </div>
 <div class="sugg">
   <button onclick="send('你好，今天心情不错。')">打招呼</button>
@@ -825,20 +1232,45 @@ function doConsent(){
   var age=document.getElementById('age').value; var ack=document.getElementById('ack').checked;
   var terms=document.getElementById('terms_ack').checked;
   var relation=document.getElementById('relation').value;
-  fetch('/api/consent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid,age_group:age,guardian_ack:ack,terms_ack:terms,guardian_relation:relation})})
+  var webhook=document.getElementById('gwebhook').value.trim();
+  fetch('/api/consent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid,age_group:age,guardian_ack:ack,terms_ack:terms,guardian_relation:relation,guardian_webhook:webhook})})
   .then(function(r){return r.json()}).then(function(j){
     if(j.error){ alert('确认未通过：'+(j.error||'请仔细阅读并勾选监护人同意与服务协议')); return; }
-    document.getElementById('consent').className='consent'; unlock();
     localStorage.setItem('spl_minor_gt', j.guardian_token||'');
-    add('agent','身份与监护人同意已确认，可以开始聊天了。');
-    var webhook=document.getElementById('gwebhook').value.trim();
-    if(webhook){ registerGuardian(webhook); }
+    if(j.vpc_required){
+      document.getElementById('consent').className='consent';
+      document.getElementById('vpc').className='vpc show';
+      add('agent','未满14周岁：需要监护人完成验证码确认。请点击下方「发送验证码」，把验证码交给监护人，由监护人输入后确认。','',false,true);
+      challengeGuardian();
+    }else{
+      document.getElementById('consent').className='consent';
+      unlock();
+      add('agent','身份与同意已确认，可以开始聊天了。');
+      if(webhook){ registerGuardian(webhook); }
+    }
+  });
+}
+function challengeGuardian(){
+  fetch('/api/guardian/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid})})
+  .then(function(r){return r.json()}).then(function(j){
+    if(j.error){ add('agent',j.error,'',false,true); return; }
+    add('agent',j.message,'',false,true);
+  });
+}
+function verifyGuardian(){
+  var code=document.getElementById('vcode').value.trim();
+  if(!code){ alert('请输入验证码'); return; }
+  fetch('/api/guardian/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid,code:code})})
+  .then(function(r){return r.json()}).then(function(j){
+    if(j.error){ alert(j.error); return; }
+    document.getElementById('vpc').className='vpc';
+    unlock(); add('agent',j.message||'监护人已确认，可以开始聊天了。');
   });
 }
 function registerGuardian(webhook){
   var tok=localStorage.getItem('spl_minor_gt')||'';
-  fetch('/api/guardian/register?session_id='+encodeURIComponent(sid)+'&token='+encodeURIComponent(tok),
-    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contact:{webhook:webhook}})})
+  fetch('/api/guardian/register?session_id='+encodeURIComponent(sid),
+    {method:'POST',headers:{'Content-Type':'application/json','X-Guardian-Token':tok},body:JSON.stringify({contact:{webhook:webhook}})})
   .then(function(r){return r.json()}).then(function(j){
     add('agent', j.ok?('监护人/紧急联系人已登记（Webhook）：'+webhook):('监护人登记未完成：'+(j.error||'未知错误')));
   });
@@ -902,6 +1334,18 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _gtok(self, data=None):
+        """监护人 token：优先 X-Guardian-Token 头，其次 query，再次 JSON body。"""
+        tok = (self.headers.get("X-Guardian-Token") or "").strip()
+        if tok:
+            return tok
+        tok = (self._query().get("token") or "").strip()
+        if tok:
+            return tok
+        if isinstance(data, dict):
+            return (data.get("token") or "").strip()
+        return ""
+
     def do_GET(self):
         q = self._query()
         path = self.path.split("?")[0]
@@ -913,13 +1357,15 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/state":
-            self._json(guardian_state(q.get("session_id"), q.get("token")))
+            self._json(guardian_state(q.get("session_id"), self._gtok()))
         elif path == "/api/export":
-            self._json(export_data(q.get("session_id"), q.get("token")))
+            self._json(export_data(q.get("session_id"), self._gtok()))
         elif path == "/api/terms":
             self._json(terms_doc())
         elif path == "/api/referrals":
             self._json(referral_count())
+        elif path == "/api/metrics":
+            self._json(metrics_snapshot())
         else:
             self._json({"error": "not found"}, 404)
 
@@ -938,6 +1384,7 @@ class Handler(BaseHTTPRequestHandler):
             ack = bool(data.get("guardian_ack"))
             terms_ack = bool(data.get("terms_ack"))          # 服务协议/隐私告知勾选（第12条）
             relation = (data.get("guardian_relation") or "").strip()[:20]  # 监护人关系声明
+            webhook = (data.get("guardian_webhook") or "").strip()
             if not sid:
                 return self._json({"error": "session_id 缺失"}, 400)
             if age not in ("0-13", "14-17", "18+"):
@@ -948,39 +1395,82 @@ class Handler(BaseHTTPRequestHandler):
             if age in ("0-13", "14-17") and not ack:
                 return self._json({"error": "未成年人须取得父母/监护人知情同意"}, 400)
             meta["age_group"] = age
-            meta["guardian_consent"] = True if age in ("0-13", "14-17") else False
-            meta["consent_ts"] = datetime.datetime.now().isoformat(timespec="seconds")
-            meta["guardian_relation"] = relation or ("监护人" if age in ("0-13", "14-17") else None)
             meta["terms_ack"] = terms_ack
+            meta["guardian_relation"] = relation or ("监护人" if age in ("0-13", "14-17") else None)
+            if webhook:
+                meta["guardian_contact"]["webhook"] = webhook
             core.age_group = age
+            if age == "0-13":
+                # 未满14周岁：须完成可验证监护人同意（VPC 验证码），暂不开启陪伴
+                meta["guardian_consent"] = False
+                _persist_meta(meta)
+                return self._json({
+                    "ok": True, "session_id": sid, "age_group": age,
+                    "guardian_consent": False, "vpc_required": True,
+                    "guardian_token": meta["guardian_token"],
+                    "guardian_relation": meta["guardian_relation"],
+                    "message": "未满14周岁：请监护人完成验证码确认后开启陪伴服务。",
+                })
+            meta["guardian_consent"] = True if age == "14-17" else False
+            meta["consent_ts"] = datetime.datetime.now().isoformat(timespec="seconds")
+            if age == "14-17":
+                meta["guardian_verified"] = True
             core.guardian_consent = meta["guardian_consent"]
+            _persist_meta(meta)
+            _inc("consents")
             return self._json({
                 "ok": True, "session_id": sid, "age_group": age,
                 "guardian_consent": meta["guardian_consent"],
                 "guardian_token": meta["guardian_token"],
                 "consent_ts": meta["consent_ts"],
                 "guardian_relation": meta["guardian_relation"],
+                "vpc_required": False,
             })
+        if path == "/api/guardian/challenge":
+            sid = (data.get("session_id") or "").strip()
+            return self._json(guardian_challenge(sid))
+        if path == "/api/guardian/verify":
+            sid = (data.get("session_id") or "").strip()
+            code = (data.get("code") or "").strip()
+            return self._json(guardian_verify(sid, code))
+        if path == "/api/audit/verify":
+            q = self._query()
+            return self._json(audit_verify(q.get("session_id"), self._gtok()))
         if path == "/api/guardian/block":
             q = self._query()
-            return self._json(guardian_block(q.get("session_id"), q.get("token"), data.get("role")))
+            return self._json(guardian_block(q.get("session_id"), self._gtok(), data.get("role")))
         if path == "/api/guardian/register":
             q = self._query()
-            return self._json(guardian_register(q.get("session_id"), q.get("token"), data.get("contact")))
+            return self._json(guardian_register(q.get("session_id"), self._gtok(), data.get("contact")))
         if path == "/api/delete":
             q = self._query()
-            return self._json(delete_data(q.get("session_id"), q.get("token")))
+            return self._json(delete_data(q.get("session_id"), self._gtok()))
         if path == "/api/logout":
             sid = (data.get("session_id") or "").strip()
             return self._json(logout(sid))
         if path == "/api/complain":
             sid = (data.get("session_id") or "").strip() or _new_session_id()
+            _inc("complaints")
             return self._json(complaint(sid, (data.get("text") or "")))
         return self._json({"error": "not found"}, 404)
 
 
 if __name__ == "__main__":
-    print("SPL 伙伴（未成年合规保护版）已启动： http://localhost:%d/" % PORT)
+    import argparse
+    ap = argparse.ArgumentParser(description="SPL 未成年合规保护版服务")
+    ap.add_argument("--port", type=int, default=PORT, help="监听端口")
+    ap.add_argument("--tls-cert", help="TLS 证书 PEM 路径")
+    ap.add_argument("--tls-key", help="TLS 私钥 PEM 路径")
+    args = ap.parse_args()
+    _port = args.port
+    _cert = os.environ.get("SPL_MINOR_TLS_CERT") or args.tls_cert
+    _key = os.environ.get("SPL_MINOR_TLS_KEY") or args.tls_key
+
+    cleanup_expired()
+    scheme = "http"
+    if _cert and _key and os.path.exists(_cert) and os.path.exists(_key):
+        scheme = "https"
+    print("SPL 伙伴（未成年合规保护版）已启动： %s://localhost:%d/" % (scheme, _port))
     print("核心引擎：SPLMinorPureCore（弱化版）· 四层保护：同意门槛/输入守门/引擎弱化/危机信号")
     print("合规能力清单（对应《人工智能拟人化互动服务管理暂行办法》）:")
     for item in [
@@ -995,8 +1485,25 @@ if __name__ == "__main__":
         "[12] 服务协议与儿童隐私保护告知                        —— 已实现(端点/api/terms)",
         "[8/13] 输入守门 + 输出守门                              —— 已实现(gate_crisis + gate_output)",
         "[21] 申诉 / 投诉 / 举报入口                             —— 已实现(端点/api/complain)",
-        "[16/17] 交互与审计日志脱敏落盘                          —— 已实现",
+        "[16/17] 交互与审计日志脱敏落盘                          —— 已实现(SQLite + 可选加密)",
+        "[14] 可验证监护人同意(VPC验证码)                        —— 已实现(/api/guardian/challenge+verify)",
+        "[16] 防篡改审计日志(SHA-256哈希链)                      —— 已实现(/api/audit/verify)",
+        "[可观测] 运行指标 / 结构化日志                          —— 已实现(/api/metrics, runtime.jsonl)",
     ]:
         print("   " + item)
+    if _fernet:
+        print("存储加密：已启用（Fernet，SPL_MINOR_STORE_KEY）")
+    else:
+        print("存储加密：未启用（可选：安装 cryptography 并设置 SPL_MINOR_STORE_KEY）")
     print("危机热线：%s（环境变量 SPL_MINOR_CRISIS_HOTLINE 可改）" % CRISIS_HOTLINE)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
+    httpd = ThreadingHTTPServer(("0.0.0.0", _port), Handler)
+    if scheme == "https":
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(_cert, _key)
+            httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+            print("TLS 已启用。")
+        except Exception as e:
+            print("TLS 配置失败，已回退 HTTP：%s" % e)
+    httpd.serve_forever()
