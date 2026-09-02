@@ -1,21 +1,25 @@
 {
-  "short_name": "SPLEngine",
-  "name": "SPL Psychological Fluid Engine Core",
-  "icons": [
-    {
-      "src": "https://img.icons8.com/fluency/192/000000/brain.png",
-      "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "https://img.icons8.com/fluency/512/000000/brain.png",
-      "type": "image/png",
-      "sizes": "512x512"
-    }
-  ],
+  "short_name": "Your Mirror",
+  "name": "Your Mirror - SPL Agent",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#FAF7F2",
   "theme_color": "#967A55",
-  "display": "standalone",
-  "orientation": "portrait"
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
 }

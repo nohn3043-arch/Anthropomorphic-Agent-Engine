@@ -1,81 +1,53 @@
 apply plugin: 'com.android.application'
 
-android {
-    namespace = "com.nohnlins.characterstudio"
-    compileSdk = rootProject.ext.compileSdkVersion
-    signingConfigs {
-        release {
-            storeFile file('../character-studio.keystore')
-            storePassword 'android123'
-            keyAlias 'character-studio'
-            keyPassword 'android123'
-        }
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
     }
+}
+
+android {
+    namespace "com.nohnlins.characterstudio"
+    compileSdkVersion rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.nohnlins.characterstudio"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.4"
+        versionCode 14
+        versionName "2.7.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
         }
     }
     buildTypes {
-        debug {
-            // Output filename for debug APK
-            applicationVariants.all { variant ->
-                variant.outputs.all { output ->
-                    outputFileName = "character-studio-debug.apk"
-                }
-            }
-        }
         release {
-            signingConfig signingConfigs.release
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
-    }
-    bundle {
-        // The AAB filename is based on the module name and cannot be changed via Gradle directly.
-        // The output will be at: app/build/outputs/bundle/release/app-release.aab
-    }
-}
-
-// Rename release APK/AAB outputs via applicationVariants
-android.applicationVariants.all { variant ->
-    variant.outputs.all { output ->
-        def buildType = variant.buildType.name
-        if (buildType == 'debug') {
-            outputFileName = "character-studio-debug.apk"
-        } else if (buildType == 'release') {
-            outputFileName = "character-studio-release.apk"
-        }
-    }
-}
-
-repositories {
-    flatDir{
-        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
 
 dependencies {
-    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation project(':capacitor-android')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
-    implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
-    implementation project(':capacitor-cordova-android-plugins')
 }
 
-apply from: 'capacitor.build.gradle'
+apply from: "capacitor.build.gradle"
 
 try {
     def servicesJSON = file('google-services.json')
@@ -83,5 +55,5 @@ try {
         apply plugin: 'com.google.gms.google-services'
     }
 } catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+    logger.info("google-services.json not found, google-services plugin not applied.")
 }

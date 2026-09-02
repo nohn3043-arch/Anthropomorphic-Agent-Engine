@@ -3,13 +3,31 @@ import {
   Brain, Heart, Activity, ShieldAlert, Zap, Moon, RefreshCw, Clock, 
   Plus, Trash2, Download, AlertTriangle, CheckCircle2, TrendingUp, 
   User, Sparkles, Lock, Settings, HelpCircle, Info, ChevronRight, Play,
-  Send, Users, X, Edit3, Check
+  Send, Users, X, Edit3, Check, Minus, Paperclip, Upload, FileText, Sun,
+  Image as ImageIcon, Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import JSZip from "jszip";
 import FluidRadar from "./components/FluidRadar";
 import { SPLEngine, PsychologicalVector, NarrativeMapper } from "./lib/SPLEngine";
+import { renderLanguageStyle, DEFAULT_LANGUAGE_STYLE, type LanguageStyleConfig } from "./lib/LanguageStyleEngine";
 import { LanguageSettings } from "./components/LanguageSettings";
 import { LanguageCode, getFluidText, getPresetText, normalizeLanguage, translate } from "./i18n";
+
+// Supported AI providers (2026-08 latest mainstream models)
+export type ApiProvider =
+  | "openai"
+  | "claude"
+  | "gemini"
+  | "deepseek"
+  | "glm"
+  | "kimi"
+  | "qwen"
+  | "doubao"
+  | "grok"
+  | "llama"
+  | "nvidia"
+  | "local";
 
 export interface AgentPreset {
   id: string;
@@ -29,6 +47,19 @@ export interface AgentPreset {
     max_trust?: number;
   };
 }
+
+// 聊天附件（图片 / 文档等，支持多种格式）
+export interface ChatAttachment {
+  id: string;
+  kind: "image" | "file";
+  name: string;
+  mime: string;
+  size: number;
+  dataUrl?: string; // 图片压缩后的 base64 data URL
+  text?: string;    // 文档抽取出的正文
+}
+
+type ChatMessage = { id: string; role: "user" | "assistant"; content: string; timestamp: string; attachments?: ChatAttachment[] };
 
 const BUILTIN_PRESETS: AgentPreset[] = [
   {
@@ -126,8 +157,36 @@ export default function App() {
   });
 
   // Track active interactive tab (Dashboard vs Chat vs Developer tools)
-  const [activeTab, setActiveTab] = useState<"dashboard" | "chat" | "dev_tools">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "chat" | "dev_tools">("chat");
+  const [showApiConfig, setShowApiConfig] = useState(false);
   const [showRawPrompt, setShowRawPrompt] = useState(false);
+
+  // ===== 深色模式（持久化到 localStorage，初始从 <html> 上的 .dark 类读取）=====
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDark) root.classList.add("dark");
+    else root.classList.remove("dark");
+    try { localStorage.setItem("spl_dark_mode", isDark ? "1" : "0"); } catch {}
+  }, [isDark]);
+  const toggleDark = () => setIsDark((v) => !v);
+
+  // First-run tutorial (3 steps, skippable). null = dismissed / already seen.
+  const [tutorialStep, setTutorialStep] = useState<number | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("spl_tutorial_done") ? null : 1;
+    }
+    return null;
+  });
+  const dismissTutorial = () => {
+    if (typeof window !== "undefined") localStorage.setItem("spl_tutorial_done", "1");
+    setTutorialStep(null);
+  };
 
   // Pre-defined and custom agents states
   const [customAgents, setCustomAgents] = useState<AgentPreset[]>(() => {
@@ -144,6 +203,26 @@ export default function App() {
     }
     return "preset_default";
   });
+
+  // 语言风格配置（按智能体ID存储于 localStorage；View 层：状态 → 语言指令）
+  const [languageStyles, setLanguageStyles] = useState<Record<string, LanguageStyleConfig>>(() => {
+    try {
+      const saved = localStorage.getItem("spl_language_styles");
+      return saved ? (JSON.parse(saved) as Record<string, LanguageStyleConfig>) : {};
+    } catch { return {}; }
+  });
+  const activeLanguageStyle: LanguageStyleConfig = languageStyles[String(activeAgentId ?? "")] || DEFAULT_LANGUAGE_STYLE;
+  const updateLanguageStyle = (patch: Partial<LanguageStyleConfig>) => {
+    setLanguageStyles((prev) => {
+      const key = String(activeAgentId ?? "");
+      const merged = { ...prev, [key]: { ...(prev[key] || DEFAULT_LANGUAGE_STYLE), ...patch } };
+      localStorage.setItem("spl_language_styles", JSON.stringify(merged));
+      return merged;
+    });
+  };
+  const languageStylePromptSection = () => {
+    try { return "\n\n" + renderLanguageStyle(snapshot.snap, activeLanguageStyle); } catch { return ""; }
+  };
 
   // State to manage the expandable JSON input section
   const [isImporting, setIsImporting] = useState(false);
@@ -187,6 +266,77 @@ export default function App() {
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editingJson, setEditingJson] = useState("");
 
+  // Draggable agent panel state
+  const agentPanelRef = useRef<HTMLDivElement>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  const [agentPanelPos, setAgentPanelPos] = useState<{ x: number; y: number } | null>(null);
+  const [agentPanelMinimized, setAgentPanelMinimized] = useState(false);
+
+  const handlePanelDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    // Don't drag if clicked on a button inside header
+    const target = e.target as HTMLElement;
+    if (target.closest("button")) return;
+
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    const rect = agentPanelRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // First-time drag: capture current rendered position as origin
+    if (agentPanelPos === null) {
+      setAgentPanelPos({ x: rect.left, y: rect.top });
+    }
+    dragOffsetRef.current = { x: clientX - rect.left, y: clientY - rect.top };
+
+    const onMove = (ev: MouseEvent | TouchEvent) => {
+      const cx = "touches" in ev
+        ? (ev as TouchEvent).touches[0].clientX
+        : (ev as MouseEvent).clientX;
+      const cy = "touches" in ev
+        ? (ev as TouchEvent).touches[0].clientY
+        : (ev as MouseEvent).clientY;
+      const newX = cx - dragOffsetRef.current.x;
+      const newY = cy - dragOffsetRef.current.y;
+      const panelW = agentPanelRef.current?.offsetWidth || 320;
+      const panelH = agentPanelRef.current?.offsetHeight || 200;
+      const maxX = window.innerWidth - Math.min(panelW, 120);
+      const maxY = window.innerHeight - Math.min(panelH, 60);
+      const clampedX = Math.max(0, Math.min(newX, maxX));
+      const clampedY = Math.max(0, Math.min(newY, maxY));
+      // 直接操作 DOM，避免 React 重渲染导致的拖拽卡顿
+      const el = agentPanelRef.current;
+      if (el) {
+        el.style.left = `${clampedX}px`;
+        el.style.top = `${clampedY}px`;
+      }
+    };
+    const cleanup = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onUp);
+      if (dragCleanupRef.current === cleanup) {
+        dragCleanupRef.current = null;
+      }
+    };
+    const onUp = () => {
+      // 拖拽结束后同步最终位置到 React state
+      const el = agentPanelRef.current;
+      if (el) {
+        const left = parseFloat(el.style.left) || 0;
+        const top = parseFloat(el.style.top) || 0;
+        setAgentPanelPos({ x: left, y: top });
+      }
+      cleanup();
+    };
+    dragCleanupRef.current = cleanup;
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("touchmove", onMove);
+    document.addEventListener("touchend", onUp);
+  };
+
   // Core i18n language state
   const [lang, setLang] = useState<LanguageCode>(() => {
     if (typeof window !== "undefined") {
@@ -197,7 +347,7 @@ export default function App() {
   });
 
   // API Config and Chat states
-  const [apiProvider, setApiProvider] = useState<"openai" | "claude" | "gemini" | "local">(() => {
+  const [apiProvider, setApiProvider] = useState<ApiProvider>(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("spl_api_provider") as any) || "local";
     }
@@ -222,11 +372,61 @@ export default function App() {
     return "";
   });
 
-  const [chatMessages, setChatMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: string }>>(() => {
+  // Conversation style preferences (auto-adjust API params + system prompt)
+  const [prefStyle, setPrefStyle] = useState<"creative" | "balanced" | "strict">(() => {
+    if (typeof window !== "undefined") {
+      const v = localStorage.getItem("spl_pref_style");
+      if (v === "creative" || v === "strict" || v === "balanced") return v;
+    }
+    return "balanced";
+  });
+  const [prefLength, setPrefLength] = useState<"short" | "medium" | "long">(() => {
+    if (typeof window !== "undefined") {
+      const v = localStorage.getItem("spl_pref_length");
+      if (v === "short" || v === "long" || v === "medium") return v;
+    }
+    return "medium";
+  });
+  const [prefTone, setPrefTone] = useState<"gentle" | "rational" | "humorous">(() => {
+    if (typeof window !== "undefined") {
+      const v = localStorage.getItem("spl_pref_tone");
+      if (v === "gentle" || v === "rational" || v === "humorous") return v;
+    }
+    return "gentle";
+  });
+
+  // Map user preferences to concrete API parameters
+  const getPrefConfig = () => {
+    const temperature = prefStyle === "creative" ? 0.95 : prefStyle === "strict" ? 0.3 : 0.7;
+    const maxTokens = prefLength === "short" ? 512 : prefLength === "long" ? 8192 : 2048;
+    return { temperature, maxTokens };
+  };
+
+  // Build the style preference section injected into the system prompt
+  const getPrefPromptSection = () => {
+    const style = prefStyle === "creative"
+      ? "imaginative and exploratory, freely branching ideas and associations"
+      : prefStyle === "strict"
+        ? "logical, precise and grounded, minimizing speculation"
+        : "balanced between creativity and rigor";
+    const length = prefLength === "short"
+      ? "reply briefly, usually 1-2 short sentences"
+      : prefLength === "long"
+        ? "reply in detail, expanding with depth and concrete examples"
+        : "reply in moderate length, usually 1-3 short paragraphs";
+    const tone = prefTone === "gentle"
+      ? "warm, gentle and soothing"
+      : prefTone === "humorous"
+        ? "playful, witty and humorous when appropriate"
+        : "calm, rational and clear-headed";
+    return `\n\n[USER STYLE PREFERENCES — apply to your replies]\n- Style: ${style}.\n- Length: ${length}.\n- Tone: ${tone}.`;
+  };
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("spl_chat_messages");
       if (saved) {
-        const parsed = JSON.parse(saved) as Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: string }>;
+        const parsed = JSON.parse(saved) as ChatMessage[];
         // 迁移旧版本硬编码双语欢迎语 → 新版本单语欢迎语
         const welcome = parsed.find((m) => m.id === "welcome");
         if (welcome && welcome.content.includes("\n\nHello")) {
@@ -247,6 +447,14 @@ export default function App() {
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
+  // 聊天框附件（文件/图片，支持多种格式）
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+  // AI 智能导入角色（Word/Excel/TXT/Markdown → 大模型识别 → JSON → 新 agent）
+  const [isAiImporting, setIsAiImporting] = useState(false);
+  const aiImportInputRef = useRef<HTMLInputElement>(null);
+
   // Sync translation toggle back to localstorage
   useEffect(() => {
     localStorage.setItem("spl_lang", lang);
@@ -265,16 +473,32 @@ export default function App() {
   const getAgentDescription = (preset: AgentPreset) => getAgentDisplay(preset).description;
 
   // Default provider configs
-  const getDefaultConfig = (provider: "openai" | "claude" | "gemini" | "local") => {
+  const getDefaultConfig = (provider: ApiProvider) => {
     switch (provider) {
       case "openai":
-        return { model: "gpt-4o-mini", url: "https://api.openai.com/v1" };
+        return { model: "gpt-5.5", url: "https://api.openai.com/v1" };
       case "claude":
-        return { model: "claude-3-5-sonnet", url: "https://api.anthropic.com/v1" };
+        return { model: "claude-sonnet-5", url: "https://api.anthropic.com/v1" };
       case "gemini":
-        return { model: "gemini-2.5-flash", url: "https://generativelanguage.googleapis.com" };
+        return { model: "gemini-3.6-flash", url: "https://generativelanguage.googleapis.com" };
+      case "deepseek":
+        return { model: "deepseek-v4-flash", url: "https://api.deepseek.com" };
+      case "glm":
+        return { model: "glm-5.3", url: "https://open.bigmodel.cn/api/paas/v4" };
+      case "kimi":
+        return { model: "kimi-k2.6", url: "https://api.moonshot.cn/v1" };
+      case "qwen":
+        return { model: "qwen3.8-max", url: "https://dashscope.aliyuncs.com/compatible-mode/v1" };
+      case "doubao":
+        return { model: "doubao-seed-2.1-pro", url: "https://ark.cn-beijing.volces.com/api/v3" };
+      case "grok":
+        return { model: "grok-4", url: "https://api.x.ai/v1" };
+      case "llama":
+        return { model: "meta-llama/Llama-4-70B-Chat", url: "https://api.together.xyz/v1" };
+      case "nvidia":
+        return { model: "nvidia/llama-3.1-nemotron-70b-instruct", url: "https://integrate.api.nvidia.com/v1" };
       case "local":
-        return { model: "qwen2.5", url: "http://localhost:11434/v1" };
+        return { model: "qwen3", url: "http://localhost:11434/v1" };
     }
   };
 
@@ -473,9 +697,7 @@ export default function App() {
     
     setActiveAgentId(preset.id);
     addNotification(
-      isSimplifiedChinese
-        ? `🎭 心理人格已切换为: ${preset.name}`
-        : `🎭 Psychological agent switched to: ${getAgentName(preset)}`,
+      `🎭 ${t("心理人格已切换为", "Psychological agent switched to")}: ${getAgentName(preset)}`,
       "success"
     );
   };
@@ -483,7 +705,7 @@ export default function App() {
   // Delete a user-designed custom agent
   const handleDeleteCustomAgent = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm(lang === "zh" ? "确定要删除这个自定义人格吗？" : "Are you sure you want to delete this custom personality?")) {
+    if (window.confirm(t("确定要删除这个自定义人格吗？", "Are you sure you want to delete this custom personality?"))) {
       const updated = customAgents.filter(a => a.id !== id);
       setCustomAgents(updated);
       localStorage.setItem("spl_custom_agents", JSON.stringify(updated));
@@ -526,13 +748,398 @@ export default function App() {
       loadAgentPreset(newPreset);
       setIsImporting(false);
       addNotification(
-        lang === "zh" 
-          ? "📥 成功导入并激活自定义人格！" 
-          : "📥 Custom personality successfully imported and activated!", 
+        t("📥 成功导入并激活自定义人格！", "📥 Custom personality successfully imported and activated!"), 
         "success"
       );
     } catch (err: any) {
-      alert(lang === "zh" ? `❌ JSON 解析/校验错误: ${err.message}` : `❌ JSON Parse/Validation Error: ${err.message}`);
+      alert(`❌ ${t("JSON 解析/校验错误", "JSON Parse/Validation Error")}: ${err.message}`);
+    }
+  };
+
+  // ========== 文件 / 图片 / 附件工具 ==========
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+  const readFileAsText = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file, "utf-8");
+    });
+
+  // 压缩图片（限制长边 + 转码），避免 localStorage 体积爆炸
+  const downscaleImage = (dataUrl: string, maxEdge = 1280, quality = 0.8): Promise<string> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL(dataUrl.startsWith("data:image/png") ? "image/png" : "image/jpeg", quality));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+
+  // 解析 .docx（基于 jszip 读取 word/document.xml 中的文本节点）
+  const extractDocxText = async (file: File): Promise<string> => {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const xml = await zip.file("word/document.xml")?.async("string");
+    if (!xml) throw new Error("无法解析 docx（缺少 document.xml）");
+    const texts: string[] = [];
+    const regex = /<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(xml)) !== null) {
+      texts.push(m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+    }
+    return texts.join("\n");
+  };
+
+  // 解析 .xlsx（基于 jszip 读取 sharedStrings + worksheets 表格文本）
+  const extractXlsxText = async (file: File): Promise<string> => {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const sharedStrs: string[] = [];
+    const sharedXml = await zip.file("xl/sharedStrings.xml")?.async("string");
+    if (sharedXml) {
+      const siRegex = /<si>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>[\s\S]*?<\/si>/g;
+      let m: RegExpExecArray | null;
+      while ((m = siRegex.exec(sharedXml)) !== null) {
+        sharedStrs.push(m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+      }
+    }
+    const sheetFiles = Object.keys(zip.files)
+      .filter((f) => f.startsWith("xl/worksheets/sheet") && f.endsWith(".xml"))
+      .sort();
+    const rows: string[] = [];
+    for (const sf of sheetFiles) {
+      const xml = await zip.file(sf)?.async("string");
+      if (!xml) continue;
+      const rowRegex = /<row[^>]*>([\s\S]*?)<\/row>/g;
+      let rm: RegExpExecArray | null;
+      while ((rm = rowRegex.exec(xml)) !== null) {
+        const cells: string[] = [];
+        const cRegex = /<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+        let cm: RegExpExecArray | null;
+        while ((cm = cRegex.exec(rm[1])) !== null) {
+          const tag = cm[1] || "";
+          const inner = cm[2] || "";
+          const tAttr = (tag.match(/\bt="([^"]*)"/) || [])[1] || "";
+          let val = "";
+          if (tAttr === "s") {
+            const idx = parseInt((inner.match(/<v>(\d+)<\/v>/) || [])[1] || "0", 10);
+            val = sharedStrs[idx] ?? "";
+          } else if (tAttr === "inlineStr") {
+            const mt = inner.match(/<t[^>]*>([\s\S]*?)<\/t>/);
+            val = mt ? mt[1] : "";
+          } else {
+            val = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1] || "";
+          }
+          val = val.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+          cells.push(val);
+        }
+        rows.push(cells.join("\t"));
+      }
+    }
+    return rows.join("\n");
+  };
+
+  // 解析 .pptx（基于 jszip 读取 ppt/slides/slideN.xml 中的 <a:t> 文本节点）
+  const extractPptxText = async (file: File): Promise<string> => {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const slideFiles = Object.keys(zip.files)
+      .filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f))
+      .sort((a, b) => parseInt((a.match(/slide(\d+)\.xml$/) || [])[1] || "0", 10) - parseInt((b.match(/slide(\d+)\.xml$/) || [])[1] || "0", 10));
+    const out: string[] = [];
+    for (const sf of slideFiles) {
+      const xml = await zip.file(sf)?.async("string");
+      if (!xml) continue;
+      const texts: string[] = [];
+      const regex = /<a:t>([\s\S]*?)<\/a:t>/g;
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(xml)) !== null) {
+        texts.push(m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+      }
+      if (texts.length) out.push(texts.join(" "));
+    }
+    return out.join("\n");
+  };
+  // 从任意文件构建 ChatAttachment（图片压缩、文档抽取正文、其余仅保留文件名）
+  const buildAttachmentFromFile = async (file: File): Promise<ChatAttachment> => {
+    const base: ChatAttachment = {
+      id: Math.random().toString(36).substring(7),
+      kind: "file",
+      name: file.name,
+      mime: file.type || "application/octet-stream",
+      size: file.size
+    };
+    const fname = file.name.toLowerCase();
+    if (file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|avif)$/.test(fname)) {
+      const raw = await readFileAsDataUrl(file);
+      const dataUrl = await downscaleImage(raw);
+      const isPng = dataUrl.startsWith("data:image/png");
+      return { ...base, kind: "image", mime: isPng ? "image/png" : "image/jpeg", dataUrl };
+    }
+    if (/\.(txt|md|markdown|csv|json|log|ini|yml|yaml|xml|html)$/.test(fname) || file.type.startsWith("text/")) {
+      const text = await readFileAsText(file);
+      return { ...base, text };
+    }
+    if (fname.endsWith(".docx")) {
+      const text = await extractDocxText(file);
+      return { ...base, text };
+    }
+    if (fname.endsWith(".xlsx")) {
+      const text = await extractXlsxText(file);
+      return { ...base, text };
+    }
+    if (fname.endsWith(".pptx")) {
+      const text = await extractPptxText(file);
+      return { ...base, text };
+    }
+    return base; // 其余二进制格式：仅携带文件名
+  };
+
+  // 聊天框选择附件
+  const handleChatAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    e.target.value = "";
+    if (!fileList || fileList.length === 0) return;
+    const files: File[] = [];
+    for (let i = 0; i < fileList.length; i++) files.push(fileList[i] as File);
+    const accepted: ChatAttachment[] = [];
+    for (const f of files) {
+      if (f.size > 15 * 1024 * 1024) {
+        addNotification(`${f.name} ${t("超过 15MB，已跳过", "exceeds 15MB, skipped")}`, "warning");
+        continue;
+      }
+      try {
+        accepted.push(await buildAttachmentFromFile(f));
+      } catch (err: any) {
+        addNotification(`${t("读取文件失败", "Failed to read file")}: ${f.name} (${err.message})`, "error");
+      }
+    }
+    setChatAttachments((prev) => [...prev, ...accepted]);
+    if (accepted.length > 0) {
+      addNotification(`${t("已添加", "Attached")} ${accepted.length} ${t("个附件", "file(s)")}`, "info");
+    }
+  };
+
+  const removeChatAttachment = (id: string) => {
+    setChatAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  // 将带附件的用户消息转为 OpenAI 兼容 content（文本 + image_url / 附件正文）
+  const buildOpenAIContent = (msg: ChatMessage): string | Array<any> => {
+    if (!msg.attachments || msg.attachments.length === 0) return msg.content;
+    const parts: any[] = [];
+    if (msg.content) parts.push({ type: "text", text: msg.content });
+    for (const att of msg.attachments) {
+      if (att.kind === "image" && att.dataUrl) {
+        parts.push({ type: "image_url", image_url: { url: att.dataUrl } });
+      } else {
+        parts.push({ type: "text", text: att.text ? `[附件: ${att.name}]\n${att.text}` : `[附件: ${att.name}（无法在本端解析正文）]` });
+      }
+    }
+    return parts;
+  };
+
+  // Claude 多模态 content
+  const buildClaudeContent = (msg: ChatMessage): string | Array<any> => {
+    if (!msg.attachments || msg.attachments.length === 0) return msg.content;
+    const parts: any[] = [];
+    if (msg.content) parts.push({ type: "text", text: msg.content });
+    for (const att of msg.attachments) {
+      if (att.kind === "image" && att.dataUrl) {
+        parts.push({ type: "image", source: { type: "base64", media_type: att.mime || "image/jpeg", data: (att.dataUrl.split(",")[1] || "") } });
+      } else {
+        parts.push({ type: "text", text: att.text ? `[附件: ${att.name}]\n${att.text}` : `[附件: ${att.name}（无法在本端解析正文）]` });
+      }
+    }
+    return parts;
+  };
+
+  // Gemini 多模态 parts
+  const buildGeminiParts = (msg: ChatMessage): Array<any> => {
+    if (!msg.attachments || msg.attachments.length === 0) return [{ text: msg.content }];
+    const parts: any[] = [];
+    if (msg.content) parts.push({ text: msg.content });
+    for (const att of msg.attachments) {
+      if (att.kind === "image" && att.dataUrl) {
+        parts.push({ inline_data: { mime_type: att.mime || "image/jpeg", data: (att.dataUrl.split(",")[1] || "") } });
+      } else {
+        parts.push({ text: att.text ? `[附件: ${att.name}]\n${att.text}` : `[附件: ${att.name}（无法在本端解析正文）]` });
+      }
+    }
+    return parts;
+  };
+
+  // 统一的大模型文本调用（供 AI 智能导入使用）
+  const callLLM = async (
+    messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    temperature = 0.3
+  ): Promise<string> => {
+    const activeKey = apiKey.trim();
+    const activeModel = apiModel.trim() || getDefaultConfig(apiProvider).model;
+    const activeUrl = apiBaseUrl.trim() || getDefaultConfig(apiProvider).url;
+
+    if (apiProvider === "claude") {
+      const res = await fetch(`${activeUrl}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": activeKey, "anthropic-version": "2023-06-01", "dangerously-allow-browser": "true" },
+        body: JSON.stringify({
+          model: activeModel,
+          system: messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"),
+          messages: messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+          max_tokens: 8192,
+          temperature
+        })
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error?.message || `HTTP ${res.status}`); }
+      const data = await res.json();
+      return data.content?.[0]?.text || "";
+    }
+    if (apiProvider === "gemini") {
+      const modelEndpoint = activeModel.includes("/") ? activeModel : `models/${activeModel}`;
+      const url = `${activeUrl}/v1beta/${modelEndpoint}:generateContent?key=${activeKey}`;
+      const contents = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents, generationConfig: { temperature } })
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error?.message || `HTTP ${res.status}`); }
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+    }
+    // OpenAI 兼容（openai / local / deepseek / kimi / qwen / doubao / grok / llama / nvidia）
+    const res = await fetch(`${activeUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${activeKey}` },
+      body: JSON.stringify({ model: activeModel, messages: messages.map((m) => ({ role: m.role, content: m.content })), temperature })
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d?.error?.message || `HTTP ${res.status}`); }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  };
+
+  // AI 智能导入：Word/Excel/TXT/Markdown 等角色文档 → 大模型自动识别 → 回填 JSON → 生成新智能体
+  const handleAiImportFile = async (file: File) => {
+    const fname = file.name.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|bmp|avif)$/.test(fname) || file.type.startsWith("image/")) {
+      addNotification(
+        t("AI 智能导入暂不支持图片，请上传 .txt/.md/.csv/.json/.docx/.xlsx/.pptx 角色文档", "AI import does not support images yet. Please upload .txt/.md/.csv/.json/.docx/.xlsx persona documents."),
+        "warning"
+      );
+      return;
+    }
+    try {
+      const att = await buildAttachmentFromFile(file);
+      let content = att.text || "";
+      if (!content.trim()) {
+        content = await readFileAsText(file).catch(() => "");
+      }
+      if (!content.trim()) {
+        addNotification(
+          t("无法从该文件中提取文本（支持 .txt/.md/.csv/.json/.docx/.xlsx/.pptx）", "Could not extract text from this file (supported: .txt/.md/.csv/.json/.docx/.xlsx)."),
+          "error"
+        );
+        return;
+      }
+      if (content.length > 60000) content = content.slice(0, 60000) + "\n...[" + t("已截断", "truncated") + "]";
+
+      const schemaExample = JSON.stringify({
+        name: "角色名（中文）",
+        nameEn: "English / Pinyin name",
+        description: "角色的心理画像、性格、说话风格与背景（中文）",
+        descriptionEn: "English description of the persona",
+        engineState: {
+          psychological_resilience: 0.5,
+          self_esteem: 0.5,
+          energy: 80,
+          max_trust: 0.5,
+          fluid_baseline: { "喜悦": 0.2, "愤怒": 0.1, "恐惧": 0.1, "信任": 0.3, "疏离": 0.2, "张力": 0.2, "愧疚": 0.0, "羞耻": 0.0 },
+          fluid: { "喜悦": 0.2, "愤怒": 0.1, "恐惧": 0.1, "信任": 0.3, "疏离": 0.2, "张力": 0.2, "愧疚": 0.0, "羞耻": 0.0 }
+        }
+      }, null, 2);
+
+      const prompt = `你是角色设定解析器。下面是一份用户提供的“角色 / 人格 / 人设”设定文档（可能来自 Word、Excel、TXT、Markdown 等）。\n请从中识别并提炼该角色的核心人格特征，然后输出一个 JSON 对象，用于生成 SPL 心理流体引擎的自定义智能体。\n\nJSON 字段规范（engineState 中 8 个流体键必须完整包含：喜悦、愤怒、恐惧、信任、疏离、张力、愧疚、羞耻，取值范围 0~1）：\n${schemaExample}\n\n要求：\n1. 只输出一个合法 JSON 对象，不要输出任何解释、Markdown 代码块或其他文字。\n2. name 用角色名（中文），nameEn 用英文名或拼音。\n3. description / descriptionEn 概括角色心理画像、性格、说话风格与背景。\n4. psychological_resilience、self_esteem、energy、max_trust 根据文档合理推断，缺失时给出合理默认值。\n5. fluid_baseline 是角色的“固有情绪基线”，fluid 复制 fluid_baseline 的值。\n\n角色设定文档内容：\n"""${content}"""`;
+
+      setIsAiImporting(true);
+      addNotification(
+        t("🤖 正在让大模型识别角色并生成 JSON...", "🤖 LLM is detecting the persona and generating JSON..."),
+        "info"
+      );
+      const reply = await callLLM([
+        { role: "system", content: "You are a precise persona-extraction engine. Always reply with ONLY valid JSON, no markdown fences, no explanations." },
+        { role: "user", content: prompt }
+      ], 0.3);
+
+      const cleaned = reply.replace(/```(?:json)?/gi, "").trim();
+      const start = cleaned.indexOf("{");
+      const end = cleaned.lastIndexOf("}");
+      if (start === -1 || end === -1) throw new Error(t("大模型未返回有效 JSON", "LLM did not return valid JSON"));
+      const parsed = JSON.parse(cleaned.slice(start, end + 1));
+      if (!parsed.name || !parsed.engineState) throw new Error(t("缺少必要字段 name / engineState", "Missing required fields: name / engineState"));
+
+      const norm = (v: any, min: number, max: number, dflt: number) => {
+        const n = Number(v);
+        if (Number.isNaN(n)) return dflt;
+        return Math.max(min, Math.min(max, n));
+      };
+      const fluidKeys = ["喜悦", "愤怒", "恐惧", "信任", "疏离", "张力", "愧疚", "羞耻"];
+      const base: Record<string, number> = {};
+      fluidKeys.forEach((k) => (base[k] = norm(parsed.engineState.fluid_baseline?.[k], 0, 1, 0)));
+      const fluid: Record<string, number> = {};
+      fluidKeys.forEach((k) => (fluid[k] = norm(parsed.engineState.fluid?.[k], 0, 1, base[k])));
+      const engineState = {
+        psychological_resilience: norm(parsed.engineState.psychological_resilience, 0, 1, 0.5),
+        self_esteem: norm(parsed.engineState.self_esteem, 0, 1, 0.5),
+        energy: norm(parsed.engineState.energy, 0, 100, 80),
+        max_trust: norm(parsed.engineState.max_trust, 0, 1, 0.5),
+        fluid_baseline: base,
+        fluid
+      };
+      const name = String(parsed.name || "AI 识别角色");
+      const nameEn = String(parsed.nameEn || name);
+      const description = String(parsed.description || "");
+      const descriptionEn = String(parsed.descriptionEn || parsed.description || "");
+
+      // 自动回填 JSON 编辑框，并直接生成新智能体
+      setJsonInput(JSON.stringify({ name, nameEn, description, descriptionEn, engineState }, null, 2));
+      const newPreset: AgentPreset = {
+        id: "custom_" + Date.now(),
+        name,
+        nameEn,
+        description,
+        descriptionEn,
+        isCustom: true,
+        engineState
+      };
+      const updated = [...customAgents, newPreset];
+      setCustomAgents(updated);
+      localStorage.setItem("spl_custom_agents", JSON.stringify(updated));
+      loadAgentPreset(newPreset);
+      setIsImporting(true);
+      addNotification(
+        t(`🤖 AI 已从「${file.name}」识别角色并生成新智能体：${name}`, `🤖 LLM created a new agent from "${file.name}": ${nameEn}`),
+        "success"
+      );
+    } catch (err: any) {
+      console.error(err);
+      addNotification(`${t("❌ AI 智能导入失败", "❌ AI import failed")}: ${err.message}`, "error");
+    } finally {
+      setIsAiImporting(false);
     }
   };
 
@@ -544,6 +1151,7 @@ export default function App() {
   };
 
   const closeAgentList = () => {
+    dragCleanupRef.current?.();
     setIsAgentListOpen(false);
     setEditingAgentId(null);
     setEditingJson("");
@@ -571,7 +1179,7 @@ export default function App() {
     try {
       const parsed = JSON.parse(editingJson);
       if (!parsed.name || !parsed.engineState) {
-        throw new Error(lang === "zh" ? "缺少必要字段 name 或 engineState" : "Missing required fields: name or engineState");
+        throw new Error(t("缺少必要字段 name 或 engineState", "Missing required fields: name or engineState"));
       }
       const updated = customAgents.map(a => {
         if (a.id === editingAgentId) {
@@ -596,14 +1204,14 @@ export default function App() {
       }
 
       addNotification(
-        lang === "zh" ? "✏️ 自定义人格已更新" : "✏️ Custom personality updated",
+        t("✏️ 自定义人格已更新", "✏️ Custom personality updated"),
         "success"
       );
       setEditingAgentId(null);
       setEditingJson("");
     } catch (err: any) {
       addNotification(
-        lang === "zh" ? `❌ JSON 解析错误: ${err.message}` : `❌ JSON Parse Error: ${err.message}`,
+        `❌ ${t("JSON 解析错误", "JSON Parse Error")}: ${err.message}`,
         "error"
       );
     }
@@ -629,12 +1237,12 @@ export default function App() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     addNotification(
-      isSimplifiedChinese ? `📤 已导出: ${agent.name}` : `📤 Exported: ${getAgentName(agent)}`,
+      `📤 ${t("已导出", "Exported")}: ${getAgentName(agent)}`,
       "info"
     );
   };
 
-  // ESC key to close modal + body scroll lock
+  // ESC key to close draggable agent panel
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isAgentListOpen) {
@@ -643,17 +1251,15 @@ export default function App() {
     };
     if (isAgentListOpen) {
       document.addEventListener("keydown", handleEsc);
-      document.body.style.overflow = "hidden";
     }
     return () => {
       document.removeEventListener("keydown", handleEsc);
-      document.body.style.overflow = "";
     };
   }, [isAgentListOpen]);
 
   // Reset engine completely based on current active agent preset
   const handleResetEngine = () => {
-    if (window.confirm(lang === "zh" ? "确定要完全重置心理智能体吗？这会抹除所有的记忆、创伤和临时状态，并将其初始化为当前选定的人格。" : "Are you sure you want to completely reset the psychological agent? This will erase all memories, traumas, and temporary states, initializing it back to the active personality preset.")) {
+    if (window.confirm(t("确定要完全重置心理智能体吗？这会抹除所有的记忆、创伤和临时状态，并将其初始化为当前选定的人格。", "Are you sure you want to completely reset the psychological agent? This will erase all memories, traumas, and temporary states, initializing it back to the active personality preset."))) {
       const activePreset = getActiveAgent();
       loadAgentPreset(activePreset);
       lastBurstCount.current = 0;
@@ -724,7 +1330,7 @@ RULES OF CONVERSATION:
 1. Speak as a natural human persona who actually has this psyche running in the background. Never say "As an AI..." or break character.
 2. Directly manifest these parameters in your language, phrasing, level of empathy, sentence structure, and attitude. Do not just list the stats; breathe them!
 3. If the user triggers specific emotions in you, react according to the metrics.
-4. Respond in the user's input language (especially English or Chinese/中文). Keep your reply relatively concise and natural (usually 1-3 short paragraphs), unless a deep explanation is requested.`;
+4. Respond in the user's input language (especially English or Chinese/中文). Keep your reply relatively concise and natural (usually 1-3 short paragraphs), unless a deep explanation is requested.${getPrefPromptSection()}${languageStylePromptSection()}`;
   };
 
   // 本地化预览版 system prompt（纯单语，按当前 lang 渲染）
@@ -755,13 +1361,13 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
 1. Speak as a natural human persona who actually has this psyche running in the background. Never say "As an AI..." or break character.
 2. Directly manifest these parameters in your language, phrasing, level of empathy, sentence structure, and attitude. Do not just list the stats; breathe them!
 3. If the user triggers specific emotions in you, react according to the metrics.
-4. Respond in the user's input language. Keep your reply relatively concise and natural (usually 1-3 short paragraphs), unless a deep explanation is requested.`;
+4. Respond in the user's input language. Keep your reply relatively concise and natural (usually 1-3 short paragraphs), unless a deep explanation is requested.${languageStylePromptSection()}`;
   };
 
   // Send message to LLM api
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputMessage.trim() || isTyping) return;
+    if ((!inputMessage.trim() && chatAttachments.length === 0) || isTyping) return;
 
     const userText = inputMessage;
     setInputMessage("");
@@ -771,17 +1377,17 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
       id: Math.random().toString(36).substring(7),
       role: "user" as const,
       content: userText,
-      timestamp: new Date().toLocaleTimeString()
+      timestamp: new Date().toLocaleTimeString(),
+      attachments: chatAttachments
     };
-    const updatedMessages = [...chatMessages, userMsg];
+    const updatedMessages = [...chatMessages, userMsg] as ChatMessage[];
     setChatMessages(updatedMessages);
+    setChatAttachments([]);
 
     // 离线友好降级：无网络时直接提示，避免无效请求与报错白屏
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       addNotification(
-        lang === "zh"
-          ? "📡 当前处于离线状态，无法连接 AI 服务。请检查网络后重试（引擎状态与对话历史已本地保存）。"
-          : "📡 You appear to be offline. AI service is unavailable. Please check your connection (engine state & chat history are saved locally).",
+        t("📡 当前处于离线状态，无法连接 AI 服务。请检查网络后重试（引擎状态与对话历史已本地保存）。", "📡 You appear to be offline. AI service is unavailable. Please check your connection (engine state & chat history are saved locally)."),
         "warning"
       );
       setChatMessages([
@@ -789,9 +1395,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
         {
           id: Math.random().toString(36).substring(7),
           role: "assistant" as const,
-          content: lang === "zh"
-            ? "📡 [离线模式] 当前无法连接大模型。您的心理引擎状态与对话历史已安全保存在本地，联网后即可继续对话。"
-            : "📡 [Offline] Unable to reach the model. Your engine state and chat history are saved locally and will resume once you reconnect.",
+          content: t("📡 [离线模式] 当前无法连接大模型。您的心理引擎状态与对话历史已安全保存在本地，联网后即可继续对话。", "📡 [Offline] Unable to reach the model. Your engine state and chat history are saved locally and will resume once you reconnect."),
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
@@ -804,13 +1408,11 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
     const activeUrl = apiBaseUrl.trim() || getDefaultConfig(apiProvider).url;
 
     if (apiProvider !== "local" && !activeKey) {
-      addNotification(lang === "zh" ? "⚠️ 请先在左侧配置 API Key 才能开始对话。" : "⚠️ Please configure your API Key on the left to start chatting.", "warning");
+      addNotification(t("⚠️ 请先在左侧配置 API Key 才能开始对话。", "⚠️ Please configure your API Key on the left to start chatting."), "warning");
       const systemErrorMsg = {
         id: Math.random().toString(36).substring(7),
         role: "assistant" as const,
-        content: lang === "zh" 
-          ? "⚠️ [错误]: 未检测到 API Key。请在左侧设置您的密钥。如果您希望免费本地测试，请选择「直连本地大模型」并确保 Ollama/LM Studio 正在后台运行。"
-          : "⚠️ [Error]: No API Key detected. Please configure your key in the settings. If you want a free local test, select 'Local LLM' and ensure Ollama/LM Studio is running in the background.",
+        content: t("⚠️ [错误]: 未检测到 API Key。请在左侧设置您的密钥。如果您希望免费本地测试，请选择「直连本地大模型」并确保 Ollama/LM Studio 正在后台运行。", "⚠️ [Error]: No API Key detected. Please configure your key in the settings. If you want a free local test, select 'Local LLM' and ensure Ollama/LM Studio is running in the background."),
         timestamp: new Date().toLocaleTimeString()
       };
       setChatMessages([...updatedMessages, systemErrorMsg]);
@@ -821,11 +1423,12 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
 
     // In-context system prompt incorporating exact current engine state
     const systemPrompt = generateSystemPromptForLLM();
+    const pref = getPrefConfig();
 
     try {
       let botResponse = "";
 
-      if (apiProvider === "openai" || apiProvider === "local") {
+      if (apiProvider === "openai" || apiProvider === "local" || apiProvider === "deepseek" || apiProvider === "kimi" || apiProvider === "qwen" || apiProvider === "doubao" || apiProvider === "grok" || apiProvider === "llama" || apiProvider === "nvidia") {
         const response = await fetch(`${activeUrl}/chat/completions`, {
           method: "POST",
           headers: {
@@ -836,9 +1439,9 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
             model: activeModel,
             messages: [
               { role: "system", content: systemPrompt },
-              ...updatedMessages.map(m => ({ role: m.role, content: m.content }))
+              ...updatedMessages.map(m => ({ role: m.role, content: buildOpenAIContent(m) }))
             ],
-            temperature: 0.7
+            temperature: pref.temperature
           })
         });
 
@@ -865,10 +1468,10 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
             system: systemPrompt,
             messages: updatedMessages.map(m => ({
               role: m.role === "assistant" ? "assistant" : "user",
-              content: m.content
+              content: buildClaudeContent(m)
             })),
-            max_tokens: 1024,
-            temperature: 0.7
+            max_tokens: pref.maxTokens,
+            temperature: pref.temperature
           })
         });
 
@@ -892,14 +1495,14 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
           },
           {
             role: "model",
-            parts: [{ text: lang === "zh" ? "心理状态已加载，我将完全以此人设做出后续回应。" : "Psychological state loaded. I will respond strictly with this persona." }]
+            parts: [{ text: t("心理状态已加载，我将完全以此人设做出后续回应。", "Psychological state loaded. I will respond strictly with this persona.") }]
           }
         ];
 
         updatedMessages.forEach(m => {
           contents.push({
             role: m.role === "user" ? "user" : "model",
-            parts: [{ text: m.content }]
+            parts: buildGeminiParts(m)
           });
         });
 
@@ -911,7 +1514,8 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
           body: JSON.stringify({
             contents,
             generationConfig: {
-              temperature: 0.7
+              temperature: pref.temperature,
+              maxOutputTokens: pref.maxTokens
             }
           })
         });
@@ -935,20 +1539,18 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
             timestamp: new Date().toLocaleTimeString()
           }
         ]);
-        addNotification(lang === "zh" ? "💬 智能体回应成功结算" : "💬 Agent response processed successfully", "success");
+        addNotification(t("💬 智能体回应成功结算", "💬 Agent response processed successfully"), "success");
       }
 
     } catch (err: any) {
       console.error(err);
-      addNotification(`❌ API 交互失败 / Interaction Failed: ${err.message}`, "error");
+      addNotification(`❌ ${t("API 交互失败", "Interaction Failed")}: ${err.message}`, "error");
       setChatMessages(prev => [
         ...prev,
         {
           id: Math.random().toString(36).substring(7),
           role: "assistant",
-          content: lang === "zh" 
-            ? `❌ [API 呼叫失败]: ${err.message}。请检查您的 API Key、Base URL 是否正确，或网络是否顺畅。如果是直连本地模型，请确保本地 Ollama/LM Studio 服务已正常启动并且没有 CORS 阻挡。`
-            : `❌ [API Call Failed]: ${err.message}. Please check your API Key, Base URL, or connection. If using local LLM, ensure Ollama/LM Studio is running and not blocked by CORS (Origins should allow *).`,
+          content: `❌ ${t("[API 呼叫失败]", "[API Call Failed]")}: ${err.message}。${t("请检查您的 API Key、Base URL 是否正确，或网络是否顺畅。如果是直连本地模型，请确保本地 Ollama/LM Studio 服务已正常启动并且没有 CORS 阻挡。", "Please check your API Key, Base URL, or connection. If using local LLM, ensure Ollama/LM Studio is running and not blocked by CORS (Origins should allow *).")}`,
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
@@ -963,73 +1565,73 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
       nameEn: "Joy",
       desc: "正向心理势能，提升归属感吸收效率。促进自尊微步恢复。",
       descEn: "Positive psychological potential, improving absorption efficiency of belonging. Promotes micro-restoration of self-esteem.",
-      color: "from-[#A2B9A1] to-[#7B9E7A]",
-      bg: "bg-[#F0F5F0]",
-      border: "border-[#DCE6DC]",
-      glow: "shadow-[#7B9E7A]/10"
+      color: "from-[var(--c-accent-lt)] to-[var(--c-accent)]",
+      bg: "bg-[var(--c-accent-bg)]",
+      border: "border-[var(--c-surface4)]",
+      glow: "shadow-[var(--c-accent)]/10"
     },
     "愤怒": {
       nameEn: "Anger",
       desc: "遭遇负面归属（伤害或冷漠）时的典型外射情绪，增加张力与疏离，具有攻击性。",
       descEn: "Typical outward emotion when encountering negative belonging (harm/neglect), increasing tension & alienation, carries combative characteristics.",
-      color: "from-[#E09F8D] to-[#CD7F6D]",
-      bg: "bg-[#FAF0ED]",
-      border: "border-[#F5E2DC]",
-      glow: "shadow-[#CD7F6D]/10"
+      color: "from-[var(--c-cyan-lt)] to-[var(--c-cyan)]",
+      bg: "bg-[var(--c-cyan-bg)]",
+      border: "border-[var(--c-cyan-bg2)]",
+      glow: "shadow-[var(--c-cyan)]/10"
     },
     "恐惧": {
       nameEn: "Fear",
       desc: "遭遇威胁（Threat）时唤醒的防御状态，提升张力，压制对外部的信任度。",
       descEn: "Defense state awakened by threats, increasing tension and suppressing general trust in external environments.",
-      color: "from-[#BCA8C9] to-[#A28FB2]",
-      bg: "bg-[#F6F0FA]",
-      border: "border-[#EDE2F5]",
-      glow: "shadow-[#A28FB2]/10"
+      color: "from-[var(--c-purple-lt)] to-[var(--c-purple)]",
+      bg: "bg-[var(--c-purple-bg)]",
+      border: "border-[var(--c-purple-bg2)]",
+      glow: "shadow-[var(--c-purple)]/10"
     },
     "信任": {
       nameEn: "Trust",
       desc: "社交与融合的根基。作为缓冲剂衰减负面冲击，受当前信任容量上限的约束。",
       descEn: "Foundation of social connection. Acts as a buffer to decay negative shocks, bound by active maximum trust capacity.",
-      color: "from-[#9BBEC7] to-[#7EA6B2]",
-      bg: "bg-[#EDF5F7]",
-      border: "border-[#DCEAF0]",
-      glow: "shadow-[#7EA6B2]/10"
+      color: "from-[var(--c-bluecyan-lt)] to-[var(--c-bluecyan)]",
+      bg: "bg-[var(--c-cyan-bg3)]",
+      border: "border-[var(--c-bluecyan-bg)]",
+      glow: "shadow-[var(--c-bluecyan)]/10"
     },
     "疏离": {
       nameEn: "Alienation",
       desc: "被动防御状态，减少外部信号的影响。高疏离导致难以建立深层联系。",
       descEn: "Passive defensive state that reduces external signal absorption. High alienation makes establishing deep connections difficult.",
-      color: "from-[#C5BCB6] to-[#A89F98]",
-      bg: "bg-[#F7F5F3]",
-      border: "border-[#EDEAE6]",
-      glow: "shadow-[#A89F98]/5"
+      color: "from-[var(--c-border3)] to-[var(--c-muted2)]",
+      bg: "bg-[var(--c-surface5)]",
+      border: "border-[var(--c-surface8)]",
+      glow: "shadow-[var(--c-muted2)]/5"
     },
     "张力": {
       nameEn: "Tension",
       desc: "当前心理紧绷程度（Tension）。由威胁或冲突产生，增加系统能量损耗，减慢平复。",
       descEn: "Current psychological tighteness (Tension). Generated by threats or conflicts, increases energy decay and slows recovery.",
-      color: "from-[#E3C598] to-[#CDAA78]",
-      bg: "bg-[#F9F4EB]",
-      border: "border-[#F4EADA]",
-      glow: "shadow-[#CDAA78]/10"
+      color: "from-[var(--c-accent4)] to-[var(--c-accent-lt2)]",
+      bg: "bg-[var(--c-accent-bg)]",
+      border: "border-[var(--c-surface6)]",
+      glow: "shadow-[var(--c-accent-lt2)]/10"
     },
     "愧疚": {
       nameEn: "Guilt",
       desc: "源于对自己“做错事”的行为级归因。高愧疚会激发补偿行为，缓慢修复受损的信任容量上限。",
       descEn: "Stems from behavioral-level attribution of doing wrong. High guilt triggers compensatory behaviors and slowly repairs trust capacity limits.",
-      color: "from-[#C3B3C9] to-[#AC98B2]",
-      bg: "bg-[#F7F2FA]",
-      border: "border-[#EFE5F5]",
-      glow: "shadow-[#AC98B2]/10"
+      color: "from-[var(--c-purple-lt2)] to-[var(--c-purple2)]",
+      bg: "bg-[var(--c-purple-bg3)]",
+      border: "border-[var(--c-purple-bg4)]",
+      glow: "shadow-[var(--c-purple2)]/10"
     },
     "羞耻": {
       nameEn: "Shame",
       desc: "源于对“我这人真坏”的自我级归因。压抑愤怒，极度损害自尊，促使个体退缩、逃避与隔离。",
       descEn: "Stems from self-level attribution of being fundamentally bad. Suppresses anger, severely damages self-esteem, causes withdrawal & avoidance.",
-      color: "from-[#DBA7B3] to-[#C78F9B]",
-      bg: "bg-[#FBF1F3]",
-      border: "border-[#F7E1E5]",
-      glow: "shadow-[#C78F9B]/10"
+      color: "from-[var(--c-bluecyan-lt3)] to-[var(--c-bluecyan2)]",
+      bg: "bg-[var(--c-surface10)]",
+      border: "border-[var(--c-surface11)]",
+      glow: "shadow-[var(--c-bluecyan2)]/10"
     }
   };
 
@@ -1037,84 +1639,71 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
   const memoryTraces = snapshot.snap.memory_traces || [];
 
   return (
-    <div id="app_root" className="min-h-screen bg-[#FAF8F5] text-[#2C2A29] font-sans selection:bg-[#C5A880]/30 selection:text-[#2C2A29]">
+    <div id="app_root" className="min-h-screen bg-[var(--c-white)] text-[var(--c-text)] font-sans selection:bg-[var(--c-accent-lt)]/40 selection:text-[var(--c-text)] gemini-fade-in">
+      {/* 极淡的渐变装饰：浅色模式有淡蓝渐变，深色模式有深邃蓝调，保持主背景仍为白/深灰 */}
+      <div
+        aria-hidden
+        className="fixed inset-0 -z-10 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--c-accent) 8%, transparent) 0%, transparent 70%)",
+        }}
+      />
       
-      {/* HEADER SECTION */}
-      <header id="app_header" className="border-b border-[#EAE3D9] bg-white/95 backdrop-blur-md sticky top-0 z-50 px-4 py-3 sm:px-6 shadow-[0_2px_15px_rgba(0,0,0,0.015)]">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          
-          <div className="flex items-center gap-3">
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-[#C5A880] via-[#DBC9B5] to-[#967A55] p-0.5 shadow-sm">
-              <div className="w-full h-full rounded-[10px] bg-white flex items-center justify-center">
-                <Brain className="w-5 h-5 text-[#967A55]" />
-              </div>
-            </div>
-            <div>
-              <h1 className="text-base font-bold font-display tracking-wider text-[#2C2A29] uppercase">
-                {t("SPL Psychological Agent Engine", "SPL Psychological Agent Engine")}
-              </h1>
-              <p className="text-[10px] font-sans text-[#8E8A85] flex items-center gap-1.5 mt-0.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#7B9E7A] animate-pulse"></span>
-                <span className="font-medium tracking-wide">
-                  {t("第二视角因果拓扑网络 / Core V8.0", "Causal Topology Network / Core V8.0")}
-                </span>
-              </p>
-            </div>
-          </div>
+      {/* AI 智能导入共享文件选择框：挂载在根节点，供对话页/看板页各处按钮触发（此前仅存在于 dashboard 面板导致对话页点击无反应） */}
+      <input
+        ref={aiImportInputRef}
+        type="file"
+        hidden
+        accept=".txt,.md,.markdown,.csv,.json,.log,.xml,.html,.docx,.xlsx,.pptx,.doc,.xls,.pdf"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) handleAiImportFile(f);
+        }}
+      />
+      
+      {/* ========== ENGINE DASHBOARD ENTRY (top-left) ========== */}
+      <div className="fixed top-3 left-3 z-[75]">
+        <button
+          onClick={() => setActiveTab(activeTab === "dashboard" ? "chat" : "dashboard")}
+          title={t("心理引擎状态看板", "Engine Dashboard")}
+          aria-label={t("心理引擎状态看板", "Engine Dashboard")}
+          className={`gemini-btn flex items-center gap-2 px-3.5 py-2 rounded-xl text-[11px] font-semibold tracking-wide transition-all border shadow-sm ${
+            activeTab === "dashboard"
+              ? "bg-gradient-to-br from-[var(--c-accent-lt)] via-[var(--c-accent-soft)] to-[var(--c-accent)] text-white border-transparent shadow-md"
+              : "bg-[var(--c-white)]/95 backdrop-blur-md border-[var(--c-border)] text-[var(--c-muted)] hover:text-[var(--c-secondary)] hover:border-[var(--c-accent)]/40"
+          }`}
+        >
+          <Brain className="w-4 h-4" />
+          <span className="hidden sm:inline">{t("引擎看板", "Dashboard")}</span>
+        </button>
+      </div>
 
-          <div className="flex items-center gap-1 bg-[#F1ECE4] p-1 rounded-xl border border-[#EAE3D9]">
-            <button
-              onClick={() => setActiveTab("dashboard")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
-                activeTab === "dashboard"
-                  ? "bg-white text-[#7A603E] shadow-sm border border-[#EAE3D9]/60"
-                  : "text-[#8E8A85] hover:text-[#615D5A]"
-              }`}
-            >
-              {t("🧠 引擎看板", "🧠 Dashboard")}
-            </button>
-            <button
-              onClick={() => setActiveTab("chat")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
-                activeTab === "chat"
-                  ? "bg-white text-[#7A603E] shadow-sm border border-[#EAE3D9]/60"
-                  : "text-[#8E8A85] hover:text-[#615D5A]"
-              }`}
-            >
-              {t("💬 智能体对话", "💬 Agent Chat")}
-            </button>
-            <button
-              onClick={() => setActiveTab("dev_tools")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
-                activeTab === "dev_tools"
-                  ? "bg-white text-[#7A603E] shadow-sm border border-[#EAE3D9]/60"
-                  : "text-[#8E8A85] hover:text-[#615D5A]"
-              }`}
-            >
-              {t("📦 扩展打包 ZIP", "📦 Extension Packer")}
-            </button>
-          </div>
+      {/* ========== 深色模式切换（top-right，语言设置左侧）========== */}
+      <div className="fixed top-3 right-[6.5rem] sm:right-[12rem] z-[75]">
+        <button
+          onClick={toggleDark}
+          title={isDark ? t("切换到浅色模式", "Switch to light mode") : t("切换到深色模式", "Switch to dark mode")}
+          aria-label={isDark ? t("切换到浅色模式", "Switch to light mode") : t("切换到深色模式", "Switch to dark mode")}
+          className={`gemini-btn flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold tracking-wide transition-all border shadow-sm backdrop-blur-md ${
+            isDark
+              ? "bg-[var(--c-surface1)] border-[var(--c-accent)]/50 text-[var(--c-accent-lt)] hover:border-[var(--c-accent)]"
+              : "bg-[var(--c-white)]/95 border-[var(--c-border)] text-[var(--c-muted)] hover:text-[var(--c-secondary)] hover:border-[var(--c-accent)]/40"
+          }`}
+        >
+          {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <span className="hidden sm:inline">{isDark ? t("浅色", "Light") : t("深色", "Dark")}</span>
+        </button>
+      </div>
 
-          <div className="flex items-center gap-2">
-            <LanguageSettings value={lang} onChange={setLang} />
-            <button 
-              onClick={handleResetEngine}
-              title={t("初始化引擎", "Initialize Engine")}
-              className="p-2 rounded-lg bg-white border border-[#EAE3D9] text-[#8E8A85] hover:text-[#CD7F6D] hover:border-[#F5E2DC] shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            <div className="hidden md:flex flex-col items-end text-right font-mono text-[9px] text-[#8E8A85] bg-white px-3 py-1 rounded-lg border border-[#EAE3D9] shadow-[0_1px_3px_rgba(0,0,0,0.01)]">
-              <div>{t("虚拟时间", "VIRTUAL TIME")}: {new Date((snapshot.snap.last_time || 0) * 1000).toLocaleTimeString()}</div>
-              <div className="text-[#967A55] font-semibold mt-0.5">{t("膨胀率", "RATE")}: 1.0s / {(snapshot.snap.psy_dilation || 1.0).toFixed(2)}s</div>
-            </div>
-          </div>
-
-        </div>
-      </header>
+      {/* ========== LANGUAGE SETTINGS (top-right) ========== */}
+      <div className="fixed top-3 right-3 z-[75]">
+        <LanguageSettings value={lang} onChange={setLang} />
+      </div>
 
       {/* MAIN CONTAINER */}
-      <main id="app_main" className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
+      <main id="app_main"       className="max-w-7xl mx-auto px-4 pb-24 pt-16 sm:px-6">
         <AnimatePresence mode="wait">
           
           {activeTab === "dashboard" ? (
@@ -1131,19 +1720,19 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
               <div className="lg:col-span-7 flex flex-col gap-6">
                 
                 {/* 🎭 PSYCHOLOGICAL AGENT PROFILES & JSON IMPORTER */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#C5A880]/5 blur-3xl rounded-full"></div>
+                <div className="gemini-card bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--c-accent-lt)]/5 blur-3xl rounded-full pointer-events-none"></div>
                   
-                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-[#F4EFEA]">
+                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--c-surface1)]">
                     <div className="flex items-center gap-2">
-                      <User className="w-4.5 h-4.5 text-[#967A55]" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">
+                      <User className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">
                         {t("🎭 心理人格预设与自设导入", "🎭 Mind Presets & Custom Personalities")}
                       </h2>
                     </div>
                     <button
                       onClick={() => setIsImporting(!isImporting)}
-                      className="text-[10px] text-[#967A55] hover:text-[#836946] flex items-center gap-1 font-semibold transition-colors"
+                      className="text-[10px] text-[var(--c-accent)] hover:text-[var(--c-accent-st)] flex items-center gap-1 font-semibold transition-colors"
                     >
                       {isImporting ? t("收起自设面版 ✕", "Close sandbox ✕") : t("📥 导入/自定义 JSON", "📥 Custom JSON Sandbox")}
                     </button>
@@ -1160,33 +1749,33 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                             onClick={() => loadAgentPreset(preset)}
                             className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between relative group ${
                               isActive
-                                ? "bg-[#FAF7F2] border-[#C5A880] shadow-sm ring-1 ring-[#C5A880]"
-                                : "bg-white border-[#EAE3D9] hover:bg-[#FAF8F5] hover:border-[#BEBAAF]"
+                                ? "bg-[var(--c-surface9)] border-[var(--c-accent-lt)] shadow-sm ring-1 ring-[var(--c-accent-lt)]"
+                                : "bg-[var(--c-white)] border-[var(--c-border)] hover:bg-[var(--c-white)] hover:border-[var(--c-border2)]"
                             }`}
                           >
                             <div>
                               <div className="flex justify-between items-start gap-2">
-                                <span className="text-xs font-bold text-[#2C2A29] flex items-center gap-1.5">
-                                  <Sparkles className={`w-3.5 h-3.5 ${isActive ? "text-[#C5A880] animate-pulse" : "text-[#BEBAAF] group-hover:text-[#967A55]"}`} />
+                                <span className="text-xs font-bold text-[var(--c-text)] flex items-center gap-1.5">
+                                  <Sparkles className={`w-3.5 h-3.5 ${isActive ? "text-[var(--c-accent-lt)] animate-pulse" : "text-[var(--c-border2)] group-hover:text-[var(--c-accent)]"}`} />
                                   {getAgentName(preset)}
                                 </span>
                                 {preset.isCustom && (
                                   <button
                                     onClick={(e) => handleDeleteCustomAgent(preset.id, e)}
                                     title={t("删除自定义人格", "Delete custom personality")}
-                                    className="opacity-40 hover:opacity-100 text-[#CD7F6D] hover:bg-[#FAF0ED] p-1 rounded-md transition-all shrink-0"
+                                    className="opacity-40 hover:opacity-100 text-[var(--c-cyan)] hover:bg-[var(--c-cyan-bg)] p-1 rounded-md transition-all shrink-0"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 )}
                               </div>
-                              <p className="text-[10px] text-[#615D5A] mt-1.5 leading-relaxed">
+                              <p className="text-[10px] text-[var(--c-secondary)] mt-1.5 leading-relaxed">
                                 {getAgentDescription(preset)}
                               </p>
                             </div>
                             
                             {isActive && (
-                              <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-[#7B9E7A] text-white text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shadow-xs">
+                              <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-[var(--c-accent)] text-white text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shadow-xs">
                                 {t("当前激活", "ACTIVE")}
                               </div>
                             )}
@@ -1203,18 +1792,53 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                           animate={{ opacity: 1, height: "auto" }}
                           exit={{ opacity: 0, height: 0 }}
                           transition={{ duration: 0.25 }}
-                          className="overflow-hidden border-t border-[#F4EFEA] pt-4 mt-2"
+                          className="overflow-hidden border-t border-[var(--c-surface1)] pt-4 mt-2"
                         >
                           <form onSubmit={handleImportJson} className="space-y-3.5">
-                            <div className="bg-[#FAF8F5] p-3 rounded-xl border border-[#EAE3D9]">
+                            {/* 🤖 AI 智能导入：角色文档 → 大模型自动识别 → 回填 JSON → 新 agent */}
+                            <div className="bg-[var(--c-white)] border border-dashed border-[var(--c-accent-lt)]/60 rounded-xl p-3.5">
                               <div className="flex justify-between items-center mb-1.5">
-                                <span className="text-[10px] text-[#8E8A85] font-bold uppercase tracking-wider flex items-center gap-1">
-                                  <Info className="w-3.5 h-3.5 text-[#967A55]" />
+                                <span className="text-[10px] text-[var(--c-muted)] font-bold uppercase tracking-wider flex items-center gap-1">
+                                  <Sparkles className="w-3.5 h-3.5 text-[var(--c-accent)]" />
+                                  {t("🤖 AI 智能导入角色（Word / Excel / TXT / Markdown）", "🤖 AI Auto-Import Persona (Word / Excel / TXT / Markdown)")}
+                                </span>
+                                <span className="text-[8px] text-[var(--c-border2)] font-mono">LLM → JSON → Agent</span>
+                              </div>
+                              <p className="text-[10px] text-[var(--c-secondary)] leading-relaxed mb-2.5">
+                                {t(
+                                  "上传您的角色设定文档（.txt/.md/.csv/.json/.docx/.xlsx），大模型将自动识别角色性格与参数，自动回填下方 JSON 并直接生成一个新智能体。",
+                                  "Upload a persona document (.txt/.md/.csv/.json/.docx/.xlsx). The LLM will auto-detect the character traits, fill the JSON below and instantly create a new agent."
+                                )}
+                              </p>
+                              <button
+                                type="button"
+                                disabled={isAiImporting}
+                                onClick={() => aiImportInputRef.current?.click()}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[var(--c-accent-lt)] to-[var(--c-accent)] hover:from-[var(--c-accent3)] hover:to-[var(--c-accent-st)] text-white font-bold text-[11px] rounded-xl transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {isAiImporting ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    {t("大模型识别角色中...", "LLM is detecting the persona...")}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="w-4 h-4" />
+                                    {t("📤 选择角色文档，AI 自动生成智能体", "📤 Choose persona doc → AI creates agent")}
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            <div className="bg-[var(--c-white)] p-3 rounded-xl border border-[var(--c-border)]">
+                              <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[10px] text-[var(--c-muted)] font-bold uppercase tracking-wider flex items-center gap-1">
+                                  <Info className="w-3.5 h-3.5 text-[var(--c-accent)]" />
                                   {t("用户自设 JSON 规范", "Custom Agent JSON Schema")}
                                 </span>
-                                <span className="text-[8px] text-[#BEBAAF] font-mono">localStorage saved</span>
+                                <span className="text-[8px] text-[var(--c-border2)] font-mono">localStorage saved</span>
                               </div>
-                              <p className="text-[10px] text-[#615D5A] leading-relaxed mb-2.5">
+                              <p className="text-[10px] text-[var(--c-secondary)] leading-relaxed mb-2.5">
                                 {t(
                                   "您可以直接编辑下方 JSON。支持自定义韧性（Resilience）、初始自尊基准以及 8 维情绪的初始固有心理基线（fluid_baseline）。格式错误将被系统拦截防呆。",
                                   "Feel free to edit the raw configuration below. You can tune self-esteem, mental resilience, and baselines for all 8 fluid coordinates. Input schema validation is enforced automatically."
@@ -1225,7 +1849,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                                 value={jsonInput}
                                 onChange={(e) => setJsonInput(e.target.value)}
                                 rows={8}
-                                className="w-full p-2.5 bg-[#FFFDFB] border border-[#EAE3D9] rounded-lg text-[10px] font-mono text-[#2C2A29] focus:outline-none focus:border-[#967A55] shadow-inner leading-normal resize-y"
+                                className="w-full p-2.5 bg-[var(--c-white)] border border-[var(--c-border)] rounded-lg text-[10px] font-mono text-[var(--c-text)] focus:outline-none focus:border-[var(--c-accent)] shadow-inner leading-normal resize-y"
                               />
                             </div>
 
@@ -1233,13 +1857,13 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                               <button
                                 type="button"
                                 onClick={() => setIsImporting(false)}
-                                className="px-3.5 py-2 border border-[#EAE3D9] text-[#8E8A85] hover:text-[#615D5A] font-semibold text-[11px] rounded-xl transition-all active:scale-[0.97]"
+                                className="px-3.5 py-2 border border-[var(--c-border)] text-[var(--c-muted)] hover:text-[var(--c-secondary)] font-semibold text-[11px] rounded-xl transition-all active:scale-[0.97]"
                               >
                                 {t("取消", "Cancel")}
                               </button>
                               <button
                                 type="submit"
-                                className="px-4 py-2 bg-[#967A55] hover:bg-[#836946] text-white font-bold text-[11px] rounded-xl transition-all shadow-sm active:scale-[0.97] flex items-center gap-1.5"
+                                className="px-4 py-2 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-[11px] rounded-xl transition-all shadow-sm active:scale-[0.97] flex items-center gap-1.5"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 {t("💾 导入并激活该心智", "💾 Import & Activate Preset")}
@@ -1252,18 +1876,123 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                   </div>
                 </div>
 
+                {/* LANGUAGE STYLE ENGINE（View 层：状态 → 语言指令可视化调节） */}
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--c-accent-lt)]/5 blur-3xl rounded-full pointer-events-none"></div>
+                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--c-surface1)]">
+                    <span className="text-[10px] text-[var(--c-muted)] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--c-accent)]" />
+                      {t("语言风格引擎", "LANGUAGE STYLE ENGINE")}
+                    </span>
+                    <span className="text-[8px] text-[var(--c-border2)] font-mono">View Layer</span>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="text-[10px] text-[var(--c-secondary)] font-semibold mb-1.5">{t("表达档位（internal_state ≠ spoken_text）", "Expression Mode (internal_state ≠ spoken_text)")}</div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {([
+                        ["direct", "坦率", "Direct"],
+                        ["restrained", "克制", "Restrained"],
+                        ["confrontational", "锋锐", "Sharply"],
+                        ["evasive", "闪躲", "Evasive"],
+                        ["intimate", "亲昵", "Intimate"]
+                      ] as const).map(([m, zh, en]) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => updateLanguageStyle({ persona: { ...activeLanguageStyle.persona, mode: m } })}
+                          className={`py-1.5 rounded-lg text-[9px] font-bold border transition-all active:scale-95 ${activeLanguageStyle.persona.mode === m
+                            ? "bg-[var(--c-accent)] text-white border-[var(--c-accent)] shadow-sm"
+                            : "bg-[var(--c-white)] text-[var(--c-muted)] border-[var(--c-border)] hover:border-[var(--c-accent-lt)]"}`}
+                        >
+                          {t(zh, en)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {([
+                    ["base_verbosity", "话痨程度", "极简", "长篇", "Verbosity", "Terse", "Wordy"],
+                    ["formality", "正式度", "市井", "书面", "Formality", "Casual", "Formal"],
+                    ["sarcasm_tendency", "讽刺倾向", "真诚", "阴阳", "Sarcasm", "Sincere", "Acid"]
+                  ] as const).map(([key, zhLabel, zhLo, zhHi, enLabel, enLo, enHi]) => (
+                    <div key={key} className="mb-2.5">
+                      <div className="flex justify-between items-center text-[9px] text-[var(--c-muted)] mb-1">
+                        <span className="font-semibold">{t(zhLabel, enLabel)}</span>
+                        <span className="font-mono text-[var(--c-accent)]">{t(zhLo, enLo)} ‹ {Math.round(activeLanguageStyle.profile[key] * 100)}% › {t(zhHi, enHi)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round(activeLanguageStyle.profile[key] * 100)}
+                        onChange={(e) => updateLanguageStyle({ profile: { ...activeLanguageStyle.profile, [key]: Number(e.target.value) / 100 } })}
+                        className="w-full h-1.5 accent-[var(--c-accent)] cursor-pointer"
+                      />
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between mt-1 mb-2">
+                    <span className="text-[9px] text-[var(--c-muted)] font-semibold flex-1 pr-2">{t("沉默策略（高情绪+低能量→动作代替语言）", "Silence policy (high emotion + low energy → actions)")}</span>
+                    <button
+                      type="button"
+                      onClick={() => updateLanguageStyle({ persona: { ...activeLanguageStyle.persona, silence_policy: !activeLanguageStyle.persona.silence_policy } })}
+                      className={`w-8 h-4 rounded-full relative transition-all shrink-0 ${activeLanguageStyle.persona.silence_policy ? "bg-[var(--c-accent)]" : "bg-[var(--c-border)]"}`}
+                    >
+                      <span className={`absolute top-0.5 w-3 h-3 bg-[var(--c-white)] rounded-full shadow transition-all ${activeLanguageStyle.persona.silence_policy ? "left-[18px]" : "left-0.5"}`}></span>
+                    </button>
+                  </div>
+                  {activeLanguageStyle.persona.silence_policy && (
+                    <input
+                      type="text"
+                      value={activeLanguageStyle.persona.silence_hint}
+                      placeholder={t("沉默时的动作/旁白描写（可选）", "Action description when silent (optional)")}
+                      onChange={(e) => updateLanguageStyle({ persona: { ...activeLanguageStyle.persona, silence_hint: e.target.value } })}
+                      className="w-full p-2 bg-[var(--c-white)] border border-[var(--c-border)] rounded-lg text-[10px] mb-2.5 focus:outline-none focus:border-[var(--c-accent)]"
+                    />
+                  )}
+
+                  <div className="mb-2.5">
+                    <div className="text-[9px] text-[var(--c-muted)] font-semibold mb-1">{t("词汇域（逗号分隔，惯用意象/隐喻）", "Vocabulary domain (comma-separated imagery)")}</div>
+                    <input
+                      type="text"
+                      value={activeLanguageStyle.profile.vocabulary_domain.join(", ")}
+                      placeholder={t("如：军营、兵器、旧宅", "e.g. military camp, blades, old mansion")}
+                      onChange={(e) => updateLanguageStyle({ profile: { ...activeLanguageStyle.profile, vocabulary_domain: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) } })}
+                      className="w-full p-2 bg-[var(--c-white)] border border-[var(--c-border)] rounded-lg text-[10px] focus:outline-none focus:border-[var(--c-accent)]"
+                    />
+                  </div>
+                  <div className="mb-2.5">
+                    <div className="text-[9px] text-[var(--c-muted)] font-semibold mb-1">{t("绝对化用词（否认防御时启用）", "Absolute words (used by denial defense)")}</div>
+                    <input
+                      type="text"
+                      value={activeLanguageStyle.profile.absolute_words.join(", ")}
+                      onChange={(e) => updateLanguageStyle({ profile: { ...activeLanguageStyle.profile, absolute_words: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) } })}
+                      className="w-full p-2 bg-[var(--c-white)] border border-[var(--c-border)] rounded-lg text-[10px] focus:outline-none focus:border-[var(--c-accent)]"
+                    />
+                  </div>
+
+                  <details className="mt-1">
+                    <summary className="text-[9px] text-[var(--c-accent)] font-bold cursor-pointer select-none">{t("▶ 实时注入预览（随滑杆与流体状态联动）", "▶ Live injection preview (reacts to sliders & fluids)")}</summary>
+                    <pre className="mt-1.5 p-2.5 bg-[var(--c-text)] text-[var(--c-surface12)] rounded-lg text-[8px] font-mono whitespace-pre-wrap max-h-44 overflow-y-auto leading-relaxed">{renderLanguageStyle(snapshot.snap, activeLanguageStyle)}</pre>
+                  </details>
+                  <p className="text-[8px] text-[var(--c-border2)] mt-2 leading-relaxed">
+                    {t("按当前智能体分别保存（localStorage）。该指令将追加到每次对话的 System Prompt 末尾。", "Saved per agent (localStorage). Injected at the end of every System Prompt.")}
+                  </p>
+                </div>
+
                 {/* 8-FLUID STATES */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#C5A880]/5 blur-3xl rounded-full"></div>
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--c-accent-lt)]/5 blur-3xl rounded-full pointer-events-none"></div>
                   
-                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-[#F4EFEA]">
+                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--c-surface1)]">
                     <div className="flex items-center gap-2">
-                      <Activity className="w-4.5 h-4.5 text-[#967A55]" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">
+                      <Activity className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">
                         {t("8维连续心理情绪流体 (Emotional Fluids)", "8-Dimensional Emotional Fluids")}
                       </h2>
                     </div>
-                    <span className="text-[10px] text-[#8E8A85]">
+                    <span className="text-[10px] text-[var(--c-muted)]">
                       {t("点击名称查看因果说明", "Click card to toggle details")}
                     </span>
                   </div>
@@ -1282,32 +2011,32 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                           onClick={() => setSelectedFluidHelp(selectedFluidHelp === key ? null : key)}
                           className={`p-3.5 rounded-xl border cursor-pointer select-none transition-all duration-200 ${
                             selectedFluidHelp === key 
-                              ? "border-[#967A55] bg-[#FDFBF9] ring-1 ring-[#967A55]/20 shadow-sm" 
-                              : "border-[#EAE3D9] bg-white hover:border-[#C5A880] hover:bg-[#FAF8F5]"
+                              ? "border-[var(--c-accent)] bg-[var(--c-white)] ring-1 ring-[var(--c-accent)]/20 shadow-sm" 
+                              : "border-[var(--c-border)] bg-[var(--c-white)] hover:border-[var(--c-accent-lt)] hover:bg-[var(--c-white)]"
                           }`}
                         >
                           <div className="flex justify-between items-center mb-1.5">
-                            <span className="text-xs font-semibold text-[#2C2A29] flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-[var(--c-text)] flex items-center gap-1.5">
                               <span className={`w-2 h-2 rounded-full bg-gradient-to-r ${meta.color}`}></span>
                               {isSimplifiedChinese ? key : fluidText.name}
                             </span>
                             <div className="flex items-center gap-2 text-[10px] font-mono">
-                              <span className="text-[#8E8A85]" title={t("当前值", "Current value")}>C:{(curVal * 100).toFixed(0)}%</span>
-                              <span className="text-[#967A55] font-semibold" title={t("演化目标值", "Adaptive target")}>T:{(tgtVal * 100).toFixed(0)}%</span>
+                              <span className="text-[var(--c-muted)]" title={t("当前值", "Current value")}>C:{(curVal * 100).toFixed(0)}%</span>
+                              <span className="text-[var(--c-accent)] font-semibold" title={t("演化目标值", "Adaptive target")}>T:{(tgtVal * 100).toFixed(0)}%</span>
                             </div>
                           </div>
 
                           {/* Dynamic slider representing exact values */}
-                          <div className="relative h-2 bg-[#F1ECE4] rounded-full overflow-hidden mt-2">
+                          <div className="relative h-2 bg-[var(--c-surface2)] rounded-full overflow-hidden mt-2">
                             {/* Baseline Marker */}
                             <div 
-                              className="absolute top-0 bottom-0 w-0.5 bg-[#8E8A85] z-10" 
+                              className="absolute top-0 bottom-0 w-0.5 bg-[var(--c-muted)] z-10" 
                               style={{ left: `${baseVal * 100}%` }}
                               title={t("固有心理基线 (Baseline)", "Psychological baseline")}
                             ></div>
                             {/* Target Marker */}
                             <div 
-                              className="absolute top-0 bottom-0 w-1 bg-[#967A55]/80 z-10 animate-pulse" 
+                              className="absolute top-0 bottom-0 w-1 bg-[var(--c-accent)]/80 z-10 animate-pulse" 
                               style={{ left: `${tgtVal * 100}%` }}
                               title={t("缓慢演化目标值 (Target)", "Adaptive Target")}
                             ></div>
@@ -1325,7 +2054,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: "auto" }}
                                 exit={{ opacity: 0, height: 0 }}
-                                className="text-[10px] text-[#615D5A] mt-2.5 pt-2 border-t border-[#F4EFEA] leading-relaxed"
+                                className="text-[10px] text-[var(--c-secondary)] mt-2.5 pt-2 border-t border-[var(--c-surface1)] leading-relaxed"
                               >
                                 {isSimplifiedChinese ? meta.desc : fluidText.desc}
                               </motion.div>
@@ -1341,26 +2070,26 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   
                   {/* MOOD Slow Variables */}
-                  <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                    <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[#F4EFEA]">
-                      <TrendingUp className="w-4 h-4 text-[#967A55]" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("背景心境慢变量 (Background Mood)", "Background Mood")}</h2>
+                  <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                    <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[var(--c-surface1)]">
+                      <TrendingUp className="w-4 h-4 text-[var(--c-accent)]" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("背景心境慢变量 (Background Mood)", "Background Mood")}</h2>
                     </div>
 
                     <div className="flex flex-col gap-3">
                       {["愉悦", "紧张", "精力"].map((mKey) => {
                         const val = snapshot.snap.mood?.[mKey] || 0.5;
-                        let color = "bg-[#7B9E7A]";
-                        if (mKey === "紧张") color = "bg-[#CDAA78]";
-                        if (mKey === "精力") color = "bg-[#7EA6B2]";
+                        let color = "bg-[var(--c-accent)]";
+                        if (mKey === "紧张") color = "bg-[var(--c-accent-lt2)]";
+                        if (mKey === "精力") color = "bg-[var(--c-bluecyan)]";
 
                         return (
                           <div key={mKey} className="space-y-1">
                             <div className="flex justify-between items-center text-xs">
-                              <span className="text-[#615D5A]">{mKey}感 (Mood {mKey})</span>
-                              <span className="font-mono text-[10px] text-[#8E8A85] font-semibold">{(val * 100).toFixed(0)}%</span>
+                              <span className="text-[var(--c-secondary)]">{mKey === "愉怦" ? t("愉怦感", "Pleasantness") : mKey === "紧张" ? t("紧张感", "Tension") : t("精力感", "Vigor")}</span>
+                              <span className="font-mono text-[10px] text-[var(--c-muted)] font-semibold">{(val * 100).toFixed(0)}%</span>
                             </div>
-                            <div className="h-1.5 bg-[#F1ECE4] rounded-full overflow-hidden">
+                            <div className="h-1.5 bg-[var(--c-surface2)] rounded-full overflow-hidden">
                               <div className={`h-full ${color}`} style={{ width: `${val * 100}%` }}></div>
                             </div>
                           </div>
@@ -1370,37 +2099,37 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                   </div>
 
                   {/* VITAL CORE PARAMETERS */}
-                  <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                    <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[#F4EFEA]">
-                      <Settings className="w-4 h-4 text-[#967A55]" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("引擎核心能度指标 (Vital Stats)", "Vital Stats")}</h2>
+                  <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                    <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[var(--c-surface1)]">
+                      <Settings className="w-4 h-4 text-[var(--c-accent)]" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("引擎核心能度指标 (Vital Stats)", "Vital Stats")}</h2>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3.5">
-                      <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EBE7E0] text-center">
-                        <div className="text-[10px] text-[#8E8A85] font-semibold">{t("生理能量 (Energy)", "Energy")}</div>
-                        <div className="text-base font-bold text-[#7B9E7A] font-mono mt-0.5">
+                      <div className="bg-[var(--c-white)] p-2.5 rounded-xl border border-[var(--c-surface3)] text-center">
+                        <div className="text-[10px] text-[var(--c-muted)] font-semibold">{t("生理能量 (Energy)", "Energy")}</div>
+                        <div className="text-base font-bold text-[var(--c-accent)] font-mono mt-0.5">
                           {(snapshot.snap.energy || 0).toFixed(0)}/100
                         </div>
                       </div>
 
-                      <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EBE7E0] text-center">
-                        <div className="text-[10px] text-[#8E8A85] font-semibold">{t("主观自尊 (Self-Esteem)", "Self-Esteem")}</div>
-                        <div className="text-base font-bold text-[#967A55] font-mono mt-0.5">
+                      <div className="bg-[var(--c-white)] p-2.5 rounded-xl border border-[var(--c-surface3)] text-center">
+                        <div className="text-[10px] text-[var(--c-muted)] font-semibold">{t("主观自尊 (Self-Esteem)", "Self-Esteem")}</div>
+                        <div className="text-base font-bold text-[var(--c-accent)] font-mono mt-0.5">
                           {((snapshot.snap.self_esteem || 0) * 100).toFixed(0)}%
                         </div>
                       </div>
 
-                      <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EBE7E0] text-center">
-                        <div className="text-[10px] text-[#8E8A85] font-semibold">{t("生理疲劳 (Fatigue)", "Fatigue")}</div>
-                        <div className="text-base font-bold text-[#CD7F6D] font-mono mt-0.5">
+                      <div className="bg-[var(--c-white)] p-2.5 rounded-xl border border-[var(--c-surface3)] text-center">
+                        <div className="text-[10px] text-[var(--c-muted)] font-semibold">{t("生理疲劳 (Fatigue)", "Fatigue")}</div>
+                        <div className="text-base font-bold text-[var(--c-cyan)] font-mono mt-0.5">
                           {((snapshot.snap.fatigue || 0) * 100).toFixed(0)}%
                         </div>
                       </div>
 
-                      <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EBE7E0] text-center">
-                        <div className="text-[10px] text-[#8E8A85] font-semibold">{t("睡眠债 (Sleep Debt)", "Sleep Debt")}</div>
-                        <div className="text-base font-bold text-[#A28FB2] font-mono mt-0.5">
+                      <div className="bg-[var(--c-white)] p-2.5 rounded-xl border border-[var(--c-surface3)] text-center">
+                        <div className="text-[10px] text-[var(--c-muted)] font-semibold">{t("睡眠债 (Sleep Debt)", "Sleep Debt")}</div>
+                        <div className="text-base font-bold text-[var(--c-purple)] font-mono mt-0.5">
                           {((snapshot.snap.sleep_debt || 0) * 100).toFixed(0)}%
                         </div>
                       </div>
@@ -1413,74 +2142,74 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
                   
                   {/* TRAUMA Multipliers (5 cols) */}
-                  <div className="sm:col-span-5 bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[#F4EFEA]">
-                      <ShieldAlert className="w-4 h-4 text-[#CD7F6D] animate-pulse" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("因果创伤印记 (Trauma)", "Trauma")}</h2>
+                  <div className="sm:col-span-5 bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--c-surface1)]">
+                      <ShieldAlert className="w-4 h-4 text-[var(--c-cyan)] animate-pulse" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("因果创伤印记 (Trauma)", "Trauma")}</h2>
                     </div>
 
                     <div className="space-y-3">
                       {Object.keys(snapshot.snap.trauma || {}).length === 0 ? (
-                        <div className="py-6 text-center text-xs text-[#8E8A85] italic">
+                        <div className="py-6 text-center text-xs text-[var(--c-muted)] italic">
                           心理完全健康，暂无创伤。
                         </div>
                       ) : (
                         Object.keys(snapshot.snap.trauma || {}).map((tKey) => {
                           const value = snapshot.snap.trauma?.[tKey] || 0.0;
                           return (
-                            <div key={tKey} className="bg-[#FAF0ED] p-2.5 rounded-xl border border-[#F5E2DC]">
+                            <div key={tKey} className="bg-[var(--c-cyan-bg)] p-2.5 rounded-xl border border-[var(--c-cyan-bg2)]">
                               <div className="flex justify-between items-center text-xs">
-                                <span className="font-semibold text-[#CD7F6D] capitalize">{tKey === "threat" ? "威胁应激" : "背叛不信"}</span>
-                                <span className="font-mono text-[#CD7F6D] font-bold">{(value * 100).toFixed(0)}%</span>
+                                <span className="font-semibold text-[var(--c-cyan)] capitalize">{tKey === "threat" ? t("威胁应激", "Threat stress") : t("背叛不信", "Betrayal distrust")}</span>
+                                <span className="font-mono text-[var(--c-cyan)] font-bold">{(value * 100).toFixed(0)}%</span>
                               </div>
-                              <p className="text-[10px] text-[#8E8A85] mt-1 leading-normal">
+                              <p className="text-[10px] text-[var(--c-muted)] mt-1 leading-normal">
                                 {tKey === "threat" 
-                                  ? "使后续受到的威胁输入敏化，持续加成恐惧感。" 
-                                  : "敏感度异常。遭受冷漠对待时流体反应放大。"}
+                                  ? t("使后续受到的威胁输入敏化，持续加成恐惧感。", "Sensitizes subsequent threat input, continuously boosting fear.") 
+                                  : t("敏感度异常。遭受冷漠对待时流体反应放大。", "Abnormal sensitivity. Fluid response amplified when subjected to cold treatment.")}
                               </p>
                             </div>
                           );
                         })
                       )}
                       
-                      <div className="bg-[#FAF8F5] p-2 rounded-lg border border-[#EAE3D9]">
-                        <div className="text-[9px] font-sans text-[#8E8A85] leading-normal">
-                          💡 创伤可通过长时间的 idle (独处时间流逝) 或睡眠(REM加工) 缓慢自我愈合。
+                      <div className="bg-[var(--c-white)] p-2 rounded-lg border border-[var(--c-border)]">
+                        <div className="text-[9px] font-sans text-[var(--c-muted)] leading-normal">
+                          {t("💡 创伤可通过长时间的 idle (独处时间流逝) 或睡眠(REM加工) 缓慢自我愈合。", "💡 Trauma can slowly self-heal through prolonged idle time or sleep (REM processing).")}
                         </div>
                       </div>
                     </div>
                   </div>
 
                   {/* MEMORIES - Ebbinghaus forgetting (7 cols) */}
-                  <div className="sm:col-span-7 bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#F4EFEA]">
+                  <div className="sm:col-span-7 bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--c-surface1)]">
                       <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-[#967A55]" />
-                        <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("艾宾浩斯巩固记忆 (Memories)", "Memories")}</h2>
+                        <Clock className="w-4 h-4 text-[var(--c-accent)]" />
+                        <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("艾宾浩斯巩固记忆 (Memories)", "Memories")}</h2>
                       </div>
-                      <span className="text-[10px] text-[#8E8A85] font-semibold">已留存: {memoryTraces.length}</span>
+                      <span className="text-[10px] text-[var(--c-muted)] font-semibold">{t("已留存", "Retained")}: {memoryTraces.length}</span>
                     </div>
 
                     <div className="space-y-2 max-h-[175px] overflow-y-auto pr-1">
                       {memoryTraces.length === 0 ? (
-                        <div className="py-12 text-center text-xs text-[#8E8A85] italic">
-                          当前无心理记忆痕迹。输入强烈事件以留存。
+                        <div className="py-12 text-center text-xs text-[var(--c-muted)] italic">
+                          {t("当前无心理记忆痕迹。输入强烈事件以留存。", "No psychological memory traces yet. Input strong events to retain.")}
                         </div>
                       ) : (
                         [...memoryTraces].reverse().map((trace: any, idx) => {
-                          const valStr = trace.valence > 0 ? t("正向归属", "Positive belonging") : trace.valence < 0 ? t("负向恐惧/背叛", "Negative fear/betrayal") : t("中性", "Neutral");
-                          const valColor = trace.valence > 0 ? "text-[#7B9E7A]" : trace.valence < 0 ? "text-[#CD7F6D]" : "text-[#615D5A]";
-                          const valBg = trace.valence > 0 ? "bg-[#F0F5F0] border-[#DCE6DC]" : trace.valence < 0 ? "bg-[#FAF0ED] border-[#F5E2DC]" : "bg-[#F7F5F3] border-[#EDEBE6]";
+                          const valStr = trace.valence > 0 ? t("正向归属记忆", "Positive belonging memory") : trace.valence < 0 ? t("负向恐惧/背叛记忆", "Negative fear/betrayal memory") : t("中性记忆", "Neutral memory");
+                          const valColor = trace.valence > 0 ? "text-[var(--c-accent)]" : trace.valence < 0 ? "text-[var(--c-cyan)]" : "text-[var(--c-secondary)]";
+                          const valBg = trace.valence > 0 ? "bg-[var(--c-accent-bg)] border-[var(--c-surface4)]" : trace.valence < 0 ? "bg-[var(--c-cyan-bg)] border-[var(--c-cyan-bg2)]" : "bg-[var(--c-surface5)] border-[var(--c-surface13)]";
                           
                           return (
                             <div key={idx} className={`${valBg} p-2.5 rounded-xl border flex flex-col gap-1 text-[11px] transition-all`}>
                               <div className="flex justify-between items-center">
-                                <span className={`font-semibold ${valColor}`}>{valStr}记忆</span>
-                                <span className="font-mono text-[10px] text-[#615D5A] font-semibold">强度: {Math.round(trace.strength * 100)}%</span>
+                                <span className={`font-semibold ${valColor}`}>{valStr}</span>
+                                <span className="font-mono text-[10px] text-[var(--c-secondary)] font-semibold">{t("强度", "Strength")}: {Math.round(trace.strength * 100)}%</span>
                               </div>
-                              <div className="flex justify-between items-center text-[10px] text-[#8E8A85]">
-                                <span>被调用/回想次数: {trace.count || 1}次</span>
-                                <span>耗时 {Math.round(trace.age || 0)}s 前</span>
+                              <div className="flex justify-between items-center text-[10px] text-[var(--c-muted)]">
+                                <span>{t("被调用/回想次数", "Recall count")}: {trace.count || 1}{t("次", "times")}</span>
+                                <span>{t("耗时", "Elapsed")} {Math.round(trace.age || 0)}s {t("前", "ago")}</span>
                               </div>
                             </div>
                           );
@@ -1497,45 +2226,45 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
               <div className="lg:col-span-5 flex flex-col gap-6">
                 
                 {/* STIMULUS EVENT PANEL */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                  <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[#F4EFEA]">
-                    <Zap className="w-4.5 h-4.5 text-[#967A55]" />
-                    <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("心理刺激引发器 (Stimulator Panel)", "Stimulator Panel")}</h2>
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                  <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[var(--c-surface1)]">
+                    <Zap className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("心理刺激引发器 (Stimulator Panel)", "Stimulator Panel")}</h2>
                   </div>
 
                   <div className="space-y-4">
                     
                     {/* Basic Preset Triggers */}
                     <div>
-                      <div className="text-[11px] text-[#8E8A85] font-semibold mb-2">{t("预置日常事件 (Presets)", "Presets")}</div>
+                      <div className="text-[11px] text-[var(--c-muted)] font-semibold mb-2">{t("预置日常事件 (Presets)", "Presets")}</div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-2">
                         <button
-                          onClick={() => handleTriggerEvent("compliment", "夸奖 (Compliment)")}
-                          className="px-3 py-2 bg-[#F0F5F0] border border-[#DCE6DC] hover:border-[#7B9E7A] text-[#557A54] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
+                          onClick={() => handleTriggerEvent("compliment", t("夸奖激励", "Praise & encouragement"))}
+                          className="px-3 py-2 bg-[var(--c-accent-bg)] border border-[var(--c-surface4)] hover:border-[var(--c-accent)] text-[var(--c-accent-st)] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
                         >
                           <span>🌸 {t("夸奖激励", "Praise & encouragement")}</span>
                         </button>
                         <button
-                          onClick={() => handleTriggerEvent("insult", "侮辱 (Insult)")}
-                          className="px-3 py-2 bg-[#FAF0ED] border border-[#F5E2DC] hover:border-[#CD7F6D] text-[#A65E4E] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
+                          onClick={() => handleTriggerEvent("insult", t("批评指责", "Criticism & blame"))}
+                          className="px-3 py-2 bg-[var(--c-cyan-bg)] border border-[var(--c-cyan-bg2)] hover:border-[var(--c-cyan)] text-[var(--c-cyan-dp)] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
                         >
                           <span>💥 {t("批评指责", "Criticism & blame")}</span>
                         </button>
                         <button
-                          onClick={() => handleTriggerEvent("betrayal", "背叛 (Betrayal)")}
-                          className="px-3 py-2 bg-[#F6F0FA] border border-[#EDE2F5] hover:border-[#A28FB2] text-[#7A5E8C] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
+                          onClick={() => handleTriggerEvent("betrayal", t("信任背叛", "Trust betrayal"))}
+                          className="px-3 py-2 bg-[var(--c-purple-bg)] border border-[var(--c-purple-bg2)] hover:border-[var(--c-purple)] text-[var(--c-purple-dp)] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
                         >
                           <span>🔪 {t("信任背叛", "Trust betrayal")}</span>
                         </button>
                         <button
-                          onClick={() => handleTriggerEvent("alone", "冷暴力 (Alone)")}
-                          className="px-3 py-2 bg-[#F7F5F3] border border-[#EDEAE6] hover:border-[#A89F98] text-[#6E645D] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
+                          onClick={() => handleTriggerEvent("alone", t("独处漠视", "Solitary neglect"))}
+                          className="px-3 py-2 bg-[var(--c-surface5)] border border-[var(--c-surface8)] hover:border-[var(--c-muted2)] text-[var(--c-secondary)] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
                         >
                           <span>🕸️ {t("独处漠视", "Solitary neglect")}</span>
                         </button>
                         <button
-                          onClick={() => handleTriggerEvent("rest", "主动休息 (Rest)")}
-                          className="px-3 py-2 bg-[#EDF5F7] border border-[#DCEAF0] hover:border-[#7EA6B2] text-[#4E7580] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
+                          onClick={() => handleTriggerEvent("rest", t("主动闭目", "Active closure"))}
+                          className="px-3 py-2 bg-[var(--c-cyan-bg3)] border border-[var(--c-bluecyan-bg)] hover:border-[var(--c-bluecyan)] text-[var(--c-bluecyan-dp)] rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all font-semibold active:scale-[0.97]"
                         >
                           <span>🧘 {t("主动闭目", "Active closure")}</span>
                         </button>
@@ -1543,77 +2272,77 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                     </div>
 
                     {/* Advanced Custom Vectors */}
-                    <div className="border-t border-[#F4EFEA] pt-3">
-                      <div className="flex justify-between items-center text-[11px] text-[#8E8A85] font-semibold mb-2">
+                    <div className="border-t border-[var(--c-surface1)] pt-3">
+                      <div className="flex justify-between items-center text-[11px] text-[var(--c-muted)] font-semibold mb-2">
                         <span>{t("自定义心理向量 (Inter感受 Vector)", "Custom psychological vector (Interoceptive Vector)")}</span>
-                        <span className="text-[#967A55] font-bold">{t("精确调制", "Precise modulation")}</span>
+                        <span className="text-[var(--c-accent)] font-bold">{t("精确调制", "Precise modulation")}</span>
                       </div>
 
-                      <div className="space-y-3 bg-[#FAF8F5] p-3.5 rounded-xl border border-[#EAE3D9]">
+                      <div className="space-y-3 bg-[var(--c-white)] p-3.5 rounded-xl border border-[var(--c-border)]">
                         {/* Threat Slider */}
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px]">
-                            <span className="text-[#615D5A] font-medium">{t("威胁感知强度 (Threat)", "Threat")}</span>
-                            <span className="font-mono text-[#CD7F6D] font-bold">+{customThreat.toFixed(1)}</span>
+                            <span className="text-[var(--c-secondary)] font-medium">{t("威胁感知强度 (Threat)", "Threat")}</span>
+                            <span className="font-mono text-[var(--c-cyan)] font-bold">+{customThreat.toFixed(1)}</span>
                           </div>
                           <input 
                             type="range" min="0" max="1" step="0.1" 
                             value={customThreat} onChange={(e) => setCustomThreat(parseFloat(e.target.value))}
-                            className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                            className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                           />
                         </div>
 
                         {/* Belonging Slider */}
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px]">
-                            <span className="text-[#615D5A] font-medium">{t("归属反馈负荷 (Belonging)", "Belonging")}</span>
-                            <span className={`font-mono font-bold ${customBelonging > 0 ? "text-[#7B9E7A]" : customBelonging < 0 ? "text-[#CD7F6D]" : "text-[#8E8A85]"}`}>
+                            <span className="text-[var(--c-secondary)] font-medium">{t("归属反馈负荷 (Belonging)", "Belonging")}</span>
+                            <span className={`font-mono font-bold ${customBelonging > 0 ? "text-[var(--c-accent)]" : customBelonging < 0 ? "text-[var(--c-cyan)]" : "text-[var(--c-muted)]"}`}>
                               {customBelonging > 0 ? `+${customBelonging.toFixed(1)}` : customBelonging.toFixed(1)}
                             </span>
                           </div>
                           <input 
                             type="range" min="-1" max="1" step="0.1" 
                             value={customBelonging} onChange={(e) => setCustomBelonging(parseFloat(e.target.value))}
-                            className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                            className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                           />
                         </div>
 
                         {/* Autonomy Slider */}
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px]">
-                            <span className="text-[#615D5A] font-medium">{t("意志掌控掌控感 (Autonomy)", "Autonomy")}</span>
-                            <span className="font-mono text-[#4E7580] font-bold">+{customAutonomy.toFixed(1)}</span>
+                            <span className="text-[var(--c-secondary)] font-medium">{t("意志掌控掌控感 (Autonomy)", "Autonomy")}</span>
+                            <span className="font-mono text-[var(--c-bluecyan-dp)] font-bold">+{customAutonomy.toFixed(1)}</span>
                           </div>
                           <input 
                             type="range" min="0" max="1" step="0.1" 
                             value={customAutonomy} onChange={(e) => setCustomAutonomy(parseFloat(e.target.value))}
-                            className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                            className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                           />
                         </div>
 
                         {/* Fatigue Slider */}
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px]">
-                            <span className="text-[#615D5A] font-medium">{t("事件消耗疲劳 (Fatigue)", "Event fatigue")}</span>
-                            <span className="font-mono text-[#CDAA78] font-bold">+{customFatigue.toFixed(1)}</span>
+                            <span className="text-[var(--c-secondary)] font-medium">{t("事件消耗疲劳 (Fatigue)", "Event fatigue")}</span>
+                            <span className="font-mono text-[var(--c-accent-lt2)] font-bold">+{customFatigue.toFixed(1)}</span>
                           </div>
                           <input 
                             type="range" min="0" max="1" step="0.1" 
                             value={customFatigue} onChange={(e) => setCustomFatigue(parseFloat(e.target.value))}
-                            className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                            className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                           />
                         </div>
 
                         {/* Shame Slider */}
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px]">
-                            <span className="text-[#615D5A] font-medium">{t("自我否定羞耻源 (Shame)", "Shame")}</span>
-                            <span className="font-mono text-[#C78F9B] font-bold">+{customShame.toFixed(1)}</span>
+                            <span className="text-[var(--c-secondary)] font-medium">{t("自我否定羞耻源 (Shame)", "Shame")}</span>
+                            <span className="font-mono text-[var(--c-bluecyan2)] font-bold">+{customShame.toFixed(1)}</span>
                           </div>
                           <input 
                             type="range" min="0" max="1" step="0.1" 
                             value={customShame} onChange={(e) => setCustomShame(parseFloat(e.target.value))}
-                            className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                            className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                           />
                         </div>
 
@@ -1623,11 +2352,11 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                             placeholder={t("匹配事件ID (可选)...", "Match event ID (optional)...")}
                             value={customEventId}
                             onChange={(e) => setCustomEventId(e.target.value)}
-                            className="bg-white border border-[#EAE3D9] text-xs px-3 py-1.5 rounded-lg text-[#2C2A29] placeholder:text-[#BEBAAF] focus:outline-none focus:border-[#967A55] focus:ring-1 focus:ring-[#967A55]/20 flex-1 font-mono"
+                            className="bg-[var(--c-white)] border border-[var(--c-border)] text-xs px-3 py-1.5 rounded-lg text-[var(--c-text)] placeholder:text-[var(--c-border2)] focus:outline-none focus:border-[var(--c-accent)] focus:ring-1 focus:ring-[var(--c-accent)]/20 flex-1 font-mono"
                           />
                           <button
                             onClick={handleInjectCustomVector}
-                            className="px-4 py-1.5 bg-[#967A55] hover:bg-[#836946] text-white font-bold text-xs rounded-lg active:scale-95 transition-all shadow-sm"
+                            className="px-4 py-1.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-xs rounded-lg active:scale-95 transition-all shadow-sm"
                           >
                             {t("注入向量", "Inject vector")}
                           </button>
@@ -1639,10 +2368,10 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 </div>
 
                 {/* THE FUTURE EXPECTATION MATRIX */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[#F4EFEA]">
-                    <Sparkles className="w-4 h-4 text-[#967A55]" />
-                    <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("未来结果预期机制 (Expectations System)", "Future expectation mechanism (Expectations System)")}</h2>
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--c-surface1)]">
+                    <Sparkles className="w-4 h-4 text-[var(--c-accent)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("未来结果预期机制 (Expectations System)", "Future expectation mechanism (Expectations System)")}</h2>
                   </div>
 
                   <form onSubmit={handleSetExpectation} className="space-y-3.5">
@@ -1653,62 +2382,62 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                         required
                         value={expEventId}
                         onChange={(e) => setExpEventId(e.target.value)}
-                        className="bg-white border border-[#EAE3D9] rounded-xl px-3 py-2 text-xs text-[#2C2A29] placeholder:text-[#BEBAAF] focus:outline-none focus:border-[#967A55] sm:w-1/2 font-mono"
+                        className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-xl px-3 py-2 text-xs text-[var(--c-text)] placeholder:text-[var(--c-border2)] focus:outline-none focus:border-[var(--c-accent)] sm:w-1/2 font-mono"
                       />
                       <button 
                         type="submit"
-                        className="px-4 py-2 bg-[#FAF8F5] hover:bg-[#F1ECE4] text-[#7A603E] font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-[#EAE3D9] transition-all active:scale-95 shadow-xs"
+                        className="px-4 py-2 bg-[var(--c-white)] hover:bg-[var(--c-surface2)] text-[var(--c-accent-dp)] font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-[var(--c-border)] transition-all active:scale-95 shadow-xs"
                       >
-                        <Plus className="w-3.5 h-3.5 text-[#967A55]" /> {t("设定心理预期", "Set psychological expectation")}
+                        <Plus className="w-3.5 h-3.5 text-[var(--c-accent)]" /> {t("设定心理预期", "Set psychological expectation")}
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3.5 bg-[#FAF8F5] p-3 rounded-xl border border-[#EAE3D9]">
+                    <div className="grid grid-cols-2 gap-3.5 bg-[var(--c-white)] p-3 rounded-xl border border-[var(--c-border)]">
                       <div className="space-y-1">
                         <div className="flex justify-between text-[10px]">
-                          <span className="text-[#615D5A] font-medium">{t("预期效价 (Valence)", "Expected valence (Valence)")}</span>
-                          <span className={expValence > 0 ? "text-[#7B9E7A] font-mono font-bold" : "text-[#CD7F6D] font-mono font-bold"}>
+                          <span className="text-[var(--c-secondary)] font-medium">{t("预期效价 (Valence)", "Expected valence (Valence)")}</span>
+                          <span className={expValence > 0 ? "text-[var(--c-accent)] font-mono font-bold" : "text-[var(--c-cyan)] font-mono font-bold"}>
                             {expValence > 0 ? `${t("期待 +", "Expecting +")}${expValence}` : `${t("担忧", "Worrying")} ${expValence}`}
                           </span>
                         </div>
                         <input 
                           type="range" min="-1" max="1" step="0.2"
                           value={expValence} onChange={(e) => setExpValence(parseFloat(e.target.value))}
-                          className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                          className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                         />
                       </div>
 
                       <div className="space-y-1">
                         <div className="flex justify-between text-[10px]">
-                          <span className="text-[#615D5A] font-medium">{t("预期确信度 (Confidence)", "Expected confidence (Confidence)")}</span>
-                          <span className="text-[#7EA6B2] font-mono font-bold">{Math.round(expConfidence * 100)}%</span>
+                          <span className="text-[var(--c-secondary)] font-medium">{t("预期确信度 (Confidence)", "Expected confidence (Confidence)")}</span>
+                          <span className="text-[var(--c-bluecyan)] font-mono font-bold">{Math.round(expConfidence * 100)}%</span>
                         </div>
                         <input 
                           type="range" min="0" max="1" step="0.1"
                           value={expConfidence} onChange={(e) => setExpConfidence(parseFloat(e.target.value))}
-                          className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                          className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                         />
                       </div>
                     </div>
                   </form>
 
                   {/* Active expectations queue */}
-                  <div className="mt-3.5 pt-3.5 border-t border-[#F4EFEA]">
-                    <div className="text-[10px] text-[#8E8A85] font-semibold mb-2">{t("已悬挂的主观预期 (Pending Queue)", "Pending subjective expectations (Pending Queue)")}</div>
+                  <div className="mt-3.5 pt-3.5 border-t border-[var(--c-surface1)]">
+                    <div className="text-[10px] text-[var(--c-muted)] font-semibold mb-2">{t("已悬挂的主观预期 (Pending Queue)", "Pending subjective expectations (Pending Queue)")}</div>
                     <div className="space-y-1.5 max-h-[110px] overflow-y-auto pr-1">
                       {Object.keys(snapshot.snap.expected_events || {}).length === 0 ? (
-                        <div className="text-[10px] text-[#8E8A85] italic py-3 text-center">
+                        <div className="text-[10px] text-[var(--c-muted)] italic py-3 text-center">
                           {t("当前无悬置预期。匹配事件ID将结算 Surprise / Disappointment。", "No pending expectations. Matching event ID will settle Surprise / Disappointment.")}
                         </div>
                       ) : (
                         Object.keys(snapshot.snap.expected_events || {}).map((key) => {
                           const exp = snapshot.snap.expected_events?.[key];
                           return (
-                            <div key={key} className="bg-[#FAF8F5] px-3 py-2 rounded-xl border border-[#EAE3D9] flex items-center justify-between text-[10px] shadow-xs">
-                              <span className="font-mono text-[#2C2A29] font-bold">"{key}"</span>
-                              <div className="flex items-center gap-3 font-mono text-[#615D5A]">
-                                <span>{t("效价", "Valence")}: <span className={exp.valence > 0 ? "text-[#7B9E7A] font-bold" : "text-[#CD7F6D] font-bold"}>{exp.valence > 0 ? `+${exp.valence}` : exp.valence}</span></span>
-                                <span>{t("确信度", "Confidence")}: <span className="text-[#7EA6B2] font-bold">{Math.round(exp.confidence * 100)}%</span></span>
+                            <div key={key} className="bg-[var(--c-white)] px-3 py-2 rounded-xl border border-[var(--c-border)] flex items-center justify-between text-[10px] shadow-xs">
+                              <span className="font-mono text-[var(--c-text)] font-bold">"{key}"</span>
+                              <div className="flex items-center gap-3 font-mono text-[var(--c-secondary)]">
+                                <span>{t("效价", "Valence")}: <span className={exp.valence > 0 ? "text-[var(--c-accent)] font-bold" : "text-[var(--c-cyan)] font-bold"}>{exp.valence > 0 ? `+${exp.valence}` : exp.valence}</span></span>
+                                <span>{t("确信度", "Confidence")}: <span className="text-[var(--c-bluecyan)] font-bold">{Math.round(exp.confidence * 100)}%</span></span>
                               </div>
                             </div>
                           );
@@ -1720,50 +2449,50 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 </div>
 
                 {/* DEFENSE MECHANISM & COGNITIVE DISSONANCE */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[#F4EFEA]">
-                    <AlertTriangle className="w-4 h-4 text-[#CDAA78]" />
-                    <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("防御堡垒及认知冲突 (Defense & Conflict)", "Defense fortress & cognitive conflict (Defense & Conflict)")}</h2>
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--c-surface1)]">
+                    <AlertTriangle className="w-4 h-4 text-[var(--c-accent-lt2)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("防御堡垒及认知冲突 (Defense & Conflict)", "Defense fortress & cognitive conflict (Defense & Conflict)")}</h2>
                   </div>
 
                   <div className="space-y-3.5">
                     {/* Defense Progress Loaders */}
-                    <div className="grid grid-cols-3 gap-3 bg-[#FAF8F5] p-3 rounded-xl border border-[#EAE3D9]">
+                    <div className="grid grid-cols-3 gap-3 bg-[var(--c-white)] p-3 rounded-xl border border-[var(--c-border)]">
                       
                       <div className="text-center space-y-1">
-                        <div className="text-[9px] text-[#8E8A85] font-semibold">{t("否认仓 (Denial)", "Denial")}</div>
-                        <div className="text-xs font-bold text-[#615D5A] font-mono">
+                        <div className="text-[9px] text-[var(--c-muted)] font-semibold">{t("否认仓 (Denial)", "Denial")}</div>
+                        <div className="text-xs font-bold text-[var(--c-secondary)] font-mono">
                           {(snapshot.snap.denial_load || 0).toFixed(2)}/1.2
                         </div>
-                        <div className="h-1 bg-[#EBE7E0] rounded-full overflow-hidden mt-1">
+                        <div className="h-1 bg-[var(--c-surface3)] rounded-full overflow-hidden mt-1">
                           <div 
-                            className="h-full bg-[#C78F9B] transition-all duration-300" 
+                            className="h-full bg-[var(--c-bluecyan2)] transition-all duration-300" 
                             style={{ width: `${Math.min(100, ((snapshot.snap.denial_load || 0) / 1.2) * 100)}%` }}
                           ></div>
                         </div>
                       </div>
 
                       <div className="text-center space-y-1">
-                        <div className="text-[9px] text-[#8E8A85] font-semibold">{t("合理化仓 (Ration)", "Rationalization")}</div>
-                        <div className="text-xs font-bold text-[#615D5A] font-mono">
+                        <div className="text-[9px] text-[var(--c-muted)] font-semibold">{t("合理化仓 (Ration)", "Rationalization")}</div>
+                        <div className="text-xs font-bold text-[var(--c-secondary)] font-mono">
                           {(snapshot.snap.rationalization_load || 0).toFixed(2)}/1.0
                         </div>
-                        <div className="h-1 bg-[#EBE7E0] rounded-full overflow-hidden mt-1">
+                        <div className="h-1 bg-[var(--c-surface3)] rounded-full overflow-hidden mt-1">
                           <div 
-                            className="h-full bg-[#7EA6B2] transition-all duration-300" 
+                            className="h-full bg-[var(--c-bluecyan)] transition-all duration-300" 
                             style={{ width: `${Math.min(100, (snapshot.snap.rationalization_load || 0) * 100)}%` }}
                           ></div>
                         </div>
                       </div>
 
                       <div className="text-center space-y-1">
-                        <div className="text-[9px] text-[#8E8A85] font-semibold">{t("压抑仓 (Repress)", "Repression")}</div>
-                        <div className="text-xs font-bold text-[#615D5A] font-mono">
+                        <div className="text-[9px] text-[var(--c-muted)] font-semibold">{t("压抑仓 (Repress)", "Repression")}</div>
+                        <div className="text-xs font-bold text-[var(--c-secondary)] font-mono">
                           {(snapshot.snap.suppression_load || 0).toFixed(2)}/1.5
                         </div>
-                        <div className="h-1 bg-[#EBE7E0] rounded-full overflow-hidden mt-1">
+                        <div className="h-1 bg-[var(--c-surface3)] rounded-full overflow-hidden mt-1">
                           <div 
-                            className="h-full bg-[#CD7F6D] transition-all duration-300" 
+                            className="h-full bg-[var(--c-cyan)] transition-all duration-300" 
                             style={{ width: `${Math.min(100, ((snapshot.snap.suppression_load || 0) / 1.5) * 100)}%` }}
                           ></div>
                         </div>
@@ -1772,13 +2501,13 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                     </div>
 
                     {/* Cognitive Dissonance inducer */}
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#FAF8F5] p-3 rounded-xl border border-[#EAE3D9] shadow-xs">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[var(--c-white)] p-3 rounded-xl border border-[var(--c-border)] shadow-xs">
                       <div>
-                        <div className="text-xs font-semibold text-[#2C2A29]">{t("认知失调 (Cognitive Dissonance)", "Cognitive Dissonance")}</div>
-                        <p className="text-[10px] text-[#8E8A85] mt-0.5">{t("当行为与信念冲突，制造压力张力，逼退能量。", "When actions conflict with beliefs, create tension that forces energy retreat.")}</p>
+                        <div className="text-xs font-semibold text-[var(--c-text)]">{t("认知失调 (Cognitive Dissonance)", "Cognitive Dissonance")}</div>
+                        <p className="text-[10px] text-[var(--c-muted)] mt-0.5">{t("当行为与信念冲突，制造压力张力，逼退能量。", "When actions conflict with beliefs, create tension that forces energy retreat.")}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-[#CDAA78] bg-[#FDFBF9] border border-[#EAE3D9] px-1.5 py-0.5 rounded shadow-xs">
+                        <span className="font-mono text-xs font-bold text-[var(--c-accent-lt2)] bg-[var(--c-white)] border border-[var(--c-border)] px-1.5 py-0.5 rounded shadow-xs">
                           {(snapshot.snap.cognitive_dissonance || 0).toFixed(2)}
                         </span>
                         <button
@@ -1788,9 +2517,9 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                             });
                             addNotification(`⚠️ ${t("信念与行为发生失调！张力、愧疚感上升，消耗5点生理能量。", "Belief-behavior dissonance! Tension and guilt rise, consuming 5 physical energy.")}`, "warning");
                           }}
-                          className="px-2.5 py-1 bg-[#CDAA78] hover:bg-[#B7925D] text-white font-bold text-[10px] rounded-lg transition-all active:scale-95 shadow-sm"
+                          className="px-2.5 py-1 bg-[var(--c-accent-lt2)] hover:bg-[var(--c-accent5)] text-white font-bold text-[10px] rounded-lg transition-all active:scale-95 shadow-sm"
                         >
-                          失调触发
+                          {t("失调触发", "Trigger dissonance")}
                         </button>
                       </div>
                     </div>
@@ -1799,41 +2528,41 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 </div>
 
                 {/* TIMELAPSE & CHRONOS SYSTEM OVERRIDE */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[#F4EFEA]">
-                    <Clock className="w-4 h-4 text-[#7B9E7A]" />
-                    <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("时空跃迁与睡眠机能 (Time & Sleep Engine)", "Time & Sleep Engine")}</h2>
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--c-surface1)]">
+                    <Clock className="w-4 h-4 text-[var(--c-accent)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("时空跃迁与睡眠机能 (Time & Sleep Engine)", "Time & Sleep Engine")}</h2>
                   </div>
 
                   <div className="space-y-4">
                     {/* Time accelerator slider */}
                     <div>
-                      <div className="flex justify-between items-center text-[10px] text-[#8E8A85] font-semibold mb-2">
+                      <div className="flex justify-between items-center text-[10px] text-[var(--c-muted)] font-semibold mb-2">
                         <span>{t("顺延加速虚空空转 (Virtual Idle Time)", "Virtual Idle Time")}</span>
-                        <span className="text-[#7B9E7A] font-bold">{t("遗忘和自修复", "Forgetting & self-repair")}</span>
+                        <span className="text-[var(--c-accent)] font-bold">{t("遗忘和自修复", "Forgetting & self-repair")}</span>
                       </div>
                       <div className="flex gap-2">
                         <button 
                           onClick={() => handleIdleSimulation(10)}
-                          className="px-2.5 py-1.5 bg-[#FAF8F5] hover:bg-[#F1ECE4] text-[#7A603E] text-[10px] font-semibold rounded-lg border border-[#EAE3D9] flex-1 transition-all shadow-xs"
+                          className="px-2.5 py-1.5 bg-[var(--c-white)] hover:bg-[var(--c-surface2)] text-[var(--c-accent-dp)] text-[10px] font-semibold rounded-lg border border-[var(--c-border)] flex-1 transition-all shadow-xs"
                         >
                           +10s
                         </button>
                         <button 
                           onClick={() => handleIdleSimulation(60)}
-                          className="px-2.5 py-1.5 bg-[#FAF8F5] hover:bg-[#F1ECE4] text-[#7A603E] text-[10px] font-semibold rounded-lg border border-[#EAE3D9] flex-1 transition-all shadow-xs"
+                          className="px-2.5 py-1.5 bg-[var(--c-white)] hover:bg-[var(--c-surface2)] text-[var(--c-accent-dp)] text-[10px] font-semibold rounded-lg border border-[var(--c-border)] flex-1 transition-all shadow-xs"
                         >
                           +1m
                         </button>
                         <button 
                           onClick={() => handleIdleSimulation(3600)}
-                          className="px-2.5 py-1.5 bg-[#FAF8F5] hover:bg-[#F1ECE4] text-[#7A603E] text-[10px] font-semibold rounded-lg border border-[#EAE3D9] flex-1 transition-all shadow-xs"
+                          className="px-2.5 py-1.5 bg-[var(--c-white)] hover:bg-[var(--c-surface2)] text-[var(--c-accent-dp)] text-[10px] font-semibold rounded-lg border border-[var(--c-border)] flex-1 transition-all shadow-xs"
                         >
                           +1h
                         </button>
                         <button 
                           onClick={() => handleIdleSimulation(43200)}
-                          className="px-2.5 py-1.5 bg-[#FAF8F5] hover:bg-[#F1ECE4] text-[#7A603E] text-[10px] font-semibold rounded-lg border border-[#EAE3D9] flex-1 transition-all shadow-xs"
+                          className="px-2.5 py-1.5 bg-[var(--c-white)] hover:bg-[var(--c-surface2)] text-[var(--c-accent-dp)] text-[10px] font-semibold rounded-lg border border-[var(--c-border)] flex-1 transition-all shadow-xs"
                         >
                           +12h
                         </button>
@@ -1841,28 +2570,28 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                     </div>
 
                     {/* Sleep module */}
-                    <div className="border-t border-[#F4EFEA] pt-3">
+                    <div className="border-t border-[var(--c-surface1)] pt-3">
                       <div className="flex items-center justify-between mb-2">
-                        <div className="text-[11px] text-[#8E8A85] font-semibold">{t("生理深眠重构 (Sleep Sim)", "Sleep Sim")}</div>
-                        <span className="text-[10px] text-[#8E8A85]">{t("清空疲劳和睡眠债", "Clear fatigue and sleep debt")}</span>
+                        <div className="text-[11px] text-[var(--c-muted)] font-semibold">{t("生理深眠重构 (Sleep Sim)", "Sleep Sim")}</div>
+                        <span className="text-[10px] text-[var(--c-muted)]">{t("清空疲劳和睡眠债", "Clear fatigue and sleep debt")}</span>
                       </div>
                       <div className="flex items-center gap-2.5">
                         <div className="flex-1 space-y-1">
                           <div className="flex justify-between text-[10px]">
-                            <span className="text-[#615D5A] font-medium">{t("计划睡眠时长", "Planned sleep duration")}</span>
-                            <span className="font-mono text-[#7EA6B2] font-bold">{sleepHours} 小时</span>
+                            <span className="text-[var(--c-secondary)] font-medium">{t("计划睡眠时长", "Planned sleep duration")}</span>
+                            <span className="font-mono text-[var(--c-bluecyan)] font-bold">{sleepHours} {t("小时", "hours")}</span>
                           </div>
                           <input 
                             type="range" min="1" max="16" step="1"
                             value={sleepHours} onChange={(e) => setSleepHours(parseInt(e.target.value))}
-                            className="w-full accent-[#967A55] h-1 bg-[#EBE7E0] rounded-lg cursor-pointer"
+                            className="w-full accent-[var(--c-accent)] h-1 bg-[var(--c-surface3)] rounded-lg cursor-pointer"
                           />
                         </div>
                         <button
                           onClick={handleSleepSimulation}
-                          className="px-4 py-2.5 bg-[#967A55] hover:bg-[#836946] text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                          className="px-4 py-2.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
                         >
-                          <Moon className="w-4 h-4" /> 确认入睡
+                          <Moon className="w-4 h-4" /> {t("确认入睡", "Confirm sleep")}
                         </button>
                       </div>
                     </div>
@@ -1875,38 +2604,38 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
               <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
                 
                 {/* NOTIFICATION LIVE ALERTS FEED */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#F4EFEA]">
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--c-surface1)]">
                     <div className="flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-[#967A55]" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("智能体感知与爆发日志 (Perception Logs)", "Perception Logs")}</h2>
+                      <Activity className="w-4 h-4 text-[var(--c-accent)]" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("智能体感知与爆发日志 (Perception Logs)", "Perception Logs")}</h2>
                     </div>
                     <button 
                       onClick={() => setNotifications([])}
-                      className="text-[10px] text-[#8E8A85] hover:text-[#CD7F6D] font-semibold"
+                      className="text-[10px] text-[var(--c-muted)] hover:text-[var(--c-cyan)] font-semibold"
                     >
-                      清空日志
+                      {t("清空日志", "Clear logs")}
                     </button>
                   </div>
 
                   <div className="space-y-2 h-[160px] overflow-y-auto pr-1">
                     {notifications.length === 0 ? (
-                      <div className="py-12 text-center text-xs text-[#8E8A85] italic">
-                        等待因果事件触发。流体日志为空。
+                      <div className="py-12 text-center text-xs text-[var(--c-muted)] italic">
+                        {t("等待因果事件触发。流体日志为空。", "Awaiting causal events. Fluid log is empty.")}
                       </div>
                     ) : (
                       notifications.map((n) => {
-                        let dotColor = "bg-[#7EA6B2]";
-                        if (n.type === "warning") dotColor = "bg-[#CDAA78]";
-                        if (n.type === "error") dotColor = "bg-[#CD7F6D]";
-                        if (n.type === "success") dotColor = "bg-[#7B9E7A]";
+                        let dotColor = "bg-[var(--c-bluecyan)]";
+                        if (n.type === "warning") dotColor = "bg-[var(--c-accent-lt2)]";
+                        if (n.type === "error") dotColor = "bg-[var(--c-cyan)]";
+                        if (n.type === "success") dotColor = "bg-[var(--c-accent)]";
                         
                         return (
-                          <div key={n.id} className="bg-[#FAF8F5] p-2 rounded-xl border border-[#EAE3D9] flex items-start gap-2.5 text-[11px] leading-relaxed shadow-xs">
+                          <div key={n.id} className="bg-[var(--c-white)] p-2 rounded-xl border border-[var(--c-border)] flex items-start gap-2.5 text-[11px] leading-relaxed shadow-xs">
                             <span className={`w-2 h-2 rounded-full ${dotColor} mt-1.5 shrink-0`}></span>
                             <div className="flex-1">
-                              <span className="text-[#2C2A29] font-medium">{n.text}</span>
-                              <div className="text-[9px] text-[#8E8A85] font-mono mt-0.5">{n.time}</div>
+                              <span className="text-[var(--c-text)] font-medium">{n.text}</span>
+                              <div className="text-[9px] text-[var(--c-muted)] font-mono mt-0.5">{n.time}</div>
                             </div>
                           </div>
                         );
@@ -1916,30 +2645,30 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 </div>
 
                 {/* GENERAL SUMMARY OVERVIEW OF THE EXTENSION */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] flex flex-col justify-between">
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[#F4EFEA]">
-                      <Sparkles className="w-4 h-4 text-[#967A55]" />
-                      <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("Chrome 扩展一键发布说明", "Chrome extension one-click publish guide")}</h2>
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--c-surface1)]">
+                      <Sparkles className="w-4 h-4 text-[var(--c-accent)]" />
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("Chrome 扩展一键发布说明", "Chrome extension one-click publish guide")}</h2>
                     </div>
-                    <p className="text-xs text-[#615D5A] leading-relaxed">
+                    <p className="text-xs text-[var(--c-secondary)] leading-relaxed">
                       {t("本看板完整模拟了 SPL 心理流体推理引擎 (V8.0)。其状态与记忆、自尊、慢心境、睡眠债深度绑定，在 Chrome 扩展的生命周期中进行持久化保存，从而实现浏览器端“拥有自主人格”的持久化心理智能体。", "This dashboard fully simulates the SPL Psychological Fluid Reasoning Engine (V8.0). Its state is deeply bound to memory, self-esteem, slow mood, and sleep debt, persisted across the Chrome extension lifecycle to realize a browser-side persistent psychological agent with its own personality.")}
                     </p>
                     <div className="grid grid-cols-2 gap-3 mt-4">
-                      <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EAE3D9] shadow-xs">
-                        <div className="text-[10px] text-[#8E8A85] font-semibold">{t("主入口界面", "Main entry interface")}</div>
-                        <div className="text-xs font-bold text-[#615D5A] mt-0.5">Vite HTML + Popup</div>
+                      <div className="bg-[var(--c-white)] p-2.5 rounded-xl border border-[var(--c-border)] shadow-xs">
+                        <div className="text-[10px] text-[var(--c-muted)] font-semibold">{t("主入口界面", "Main entry interface")}</div>
+                        <div className="text-xs font-bold text-[var(--c-secondary)] mt-0.5">Vite HTML + Popup</div>
                       </div>
-                      <div className="bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EAE3D9] shadow-xs">
-                        <div className="text-[10px] text-[#8E8A85] font-semibold">{t("存储方案", "Storage solution")}</div>
-                        <div className="text-xs font-bold text-[#615D5A] mt-0.5">Chrome Local Storage</div>
+                      <div className="bg-[var(--c-white)] p-2.5 rounded-xl border border-[var(--c-border)] shadow-xs">
+                        <div className="text-[10px] text-[var(--c-muted)] font-semibold">{t("存储方案", "Storage solution")}</div>
+                        <div className="text-xs font-bold text-[var(--c-secondary)] mt-0.5">Chrome Local Storage</div>
                       </div>
                     </div>
                   </div>
 
                   <button
                     onClick={() => setActiveTab("dev_tools")}
-                    className="w-full py-2.5 bg-[#967A55] hover:bg-[#836946] text-white font-bold text-xs rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-4 shadow-sm"
+                    className="w-full py-2.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-xs rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-4 shadow-sm"
                   >
                     <span>📦 {t("前往打包 Chrome 扩展 ZIP 格式", "Go pack Chrome extension ZIP")}</span>
                     <ChevronRight className="w-4 h-4 text-white" />
@@ -1956,24 +2685,30 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
-              className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
+              className="flex flex-col h-[calc(100vh-124px)]"
             >
               
-              {/* LEFT COLUMN: API CONFIGURATION & LIVE CORE PERSONA PREVIEW (4 COLS) */}
-              <div className="lg:col-span-4 flex flex-col gap-6">
-                
+              {/* API SETTINGS MODAL (toggled by gear button in chat header) */}
+              {showApiConfig && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={() => setShowApiConfig(false)}>
+                  <div className="bg-[var(--c-white)] rounded-2xl shadow-2xl border border-[var(--c-border)] p-5 w-[min(92vw,30rem)] max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--c-surface1)]">
+                      <h2 className="text-sm font-semibold font-display text-[var(--c-text)]">{t("⚙️ 设置", "⚙️ Settings")}</h2>
+                      <button onClick={() => setShowApiConfig(false)} className="text-[var(--c-muted)] hover:text-[var(--c-cyan)] text-lg leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--c-cyan-bg)] transition-all">×</button>
+                    </div>
+                    <div className="flex flex-col gap-4">
                 {/* INTERFACE CREDENTIALS */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] space-y-4">
-                  <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[#F4EFEA]">
-                    <Lock className="w-4.5 h-4.5 text-[#967A55]" />
-                    <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card space-y-4">
+                  <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[var(--c-surface1)]">
+                    <Lock className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">
                       {t("🔑 大模型API直连配置", "🔑 API Configuration")}
                     </h2>
                   </div>
 
                   {/* Provider selection */}
                   <div className="space-y-1">
-                    <label className="text-[10px] text-[#8E8A85] font-semibold block">{t("AI 服务商", "API Provider")}</label>
+                    <label className="text-[10px] text-[var(--c-muted)] font-semibold block">{t("AI 服务商", "API Provider")}</label>
                     <select
                       value={apiProvider}
                       onChange={(e) => {
@@ -1987,11 +2722,19 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                         localStorage.setItem("spl_api_model", d.model);
                         localStorage.setItem("spl_api_base_url", d.url);
                       }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-[#EAE3D9] bg-white text-[#2C2A29] font-semibold focus:outline-none focus:border-[#967A55]"
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--c-border)] bg-[var(--c-white)] text-[var(--c-text)] font-semibold focus:outline-none focus:border-[var(--c-accent)]"
                     >
-                      <option value="openai">OpenAI (Direct client-side)</option>
-                      <option value="claude">Anthropic Claude</option>
-                      <option value="gemini">Google Gemini (Client-side)</option>
+                      <option value="openai">OpenAI (GPT-5.5)</option>
+                      <option value="claude">Anthropic Claude (Sonnet 5)</option>
+                      <option value="gemini">Google Gemini (3.6 Flash)</option>
+                      <option value="deepseek">DeepSeek (V4 Flash)</option>
+                      <option value="glm">{t("智谱 GLM", "Zhipu GLM")} (5.3)</option>
+                      <option value="kimi">Moonshot Kimi (K2.6)</option>
+                      <option value="qwen">{t("通义千问 Qwen", "Qwen")} (3.8 Max)</option>
+                      <option value="doubao">{t("豆包 Doubao", "Doubao")} (Seed 2.1 Pro)</option>
+                      <option value="grok">xAI Grok (Grok-4)</option>
+                      <option value="llama">Meta Llama (Llama-4 70B via Together)</option>
+                      <option value="nvidia">NVIDIA NIM (Nemotron 70B)</option>
                       <option value="local">Local LLM (Ollama / LM Studio)</option>
                     </select>
                   </div>
@@ -2000,8 +2743,8 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                   {apiProvider !== "local" && (
                     <div className="space-y-1">
                       <div className="flex justify-between items-center">
-                        <label className="text-[10px] text-[#8E8A85] font-semibold block">{t("API 密钥 (API Key)", "API Secret Key")}</label>
-                        <span className="text-[8px] text-[#8E8A85] italic">{t("仅存在您本地浏览器", "Saved locally only")}</span>
+                        <label className="text-[10px] text-[var(--c-muted)] font-semibold block">{t("API 密钥 (API Key)", "API Secret Key")}</label>
+                        <span className="text-[8px] text-[var(--c-muted)] italic">{t("仅存在您本地浏览器", "Saved locally only")}</span>
                       </div>
                       <input
                         type="password"
@@ -2011,14 +2754,14 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                           setApiKey(e.target.value);
                           localStorage.setItem("spl_api_key", e.target.value);
                         }}
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-[#EAE3D9] bg-white text-[#2C2A29] font-mono focus:outline-none focus:border-[#967A55]"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--c-border)] bg-[var(--c-white)] text-[var(--c-text)] font-mono focus:outline-none focus:border-[var(--c-accent)]"
                       />
                     </div>
                   )}
 
                   {/* API Base URL */}
                   <div className="space-y-1">
-                    <label className="text-[10px] text-[#8E8A85] font-semibold block">{t("代理 / 基础URL (Base URL)", "API Endpoint Base URL")}</label>
+                    <label className="text-[10px] text-[var(--c-muted)] font-semibold block">{t("代理 / 基础URL (Base URL)", "API Endpoint Base URL")}</label>
                     <input
                       type="text"
                       value={apiBaseUrl}
@@ -2027,22 +2770,33 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                         setApiBaseUrl(e.target.value);
                         localStorage.setItem("spl_api_base_url", e.target.value);
                       }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-[#EAE3D9] bg-white text-[#2C2A29] font-mono focus:outline-none focus:border-[#967A55]"
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--c-border)] bg-[var(--c-white)] text-[var(--c-text)] font-mono focus:outline-none focus:border-[var(--c-accent)]"
                     />
                   </div>
 
+                  {/* Qwen Bailian workspace domain hint */}
+                  {apiProvider === "qwen" && (
+                    <div className="bg-[var(--c-white)] border border-[var(--c-surface6)] p-2.5 rounded-lg text-[9px] text-[var(--c-muted)] leading-relaxed">
+                      💡{" "}
+                      {t("千问 3.8 可选百炼业务空间专属域名（更稳更快）：", "Qwen 3.8 optional Bailian workspace domain (faster & more stable):")}{" "}
+                      <span className="text-[var(--c-accent)] font-mono">https://{"{WorkspaceId}"}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1</span>
+                      <br />
+                      {t("原 dashscope.aliyuncs.com 域名仍可用，无需改动。", "The legacy dashscope.aliyuncs.com domain still works \u2014 no change needed.")}
+                    </div>
+                  )}
+
                   {/* Model Name */}
                   <div className="space-y-1">
-                    <label className="text-[10px] text-[#8E8A85] font-semibold block">{t("模型名称 (Model)", "AI Model Name")}</label>
+                    <label className="text-[10px] text-[var(--c-muted)] font-semibold block">{t("模型名称 (Model)", "AI Model Name")}</label>
                     <input
                       type="text"
                       value={apiModel}
-                      placeholder="e.g. gpt-4o-mini"
+                      placeholder="e.g. gpt-5.5"
                       onChange={(e) => {
                         setApiModel(e.target.value);
                         localStorage.setItem("spl_api_model", e.target.value);
                       }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-[#EAE3D9] bg-white text-[#2C2A29] font-mono focus:outline-none focus:border-[#967A55]"
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--c-border)] bg-[var(--c-white)] text-[var(--c-text)] font-mono focus:outline-none focus:border-[var(--c-accent)]"
                     />
                   </div>
 
@@ -2057,7 +2811,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                         localStorage.setItem("spl_api_base_url", d.url);
                         addNotification(t("已恢复默认服务配置", "Default model configuration loaded"), "info");
                       }}
-                      className="text-[9px] text-[#967A55] font-semibold bg-[#FAF8F5] border border-[#EAE3D9] hover:bg-[#F1ECE4] px-2.5 py-1.5 rounded-md flex-1 text-center transition-all"
+                      className="text-[9px] text-[var(--c-accent)] font-semibold bg-[var(--c-white)] border border-[var(--c-border)] hover:bg-[var(--c-surface2)] px-2.5 py-1.5 rounded-md flex-1 text-center transition-all"
                     >
                       {t("📋 恢复该渠道默认值", "Reset to Default")}
                     </button>
@@ -2067,14 +2821,14 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                         localStorage.removeItem("spl_api_key");
                         addNotification(t("已清除本地密钥存储", "Cleared saved API Key"), "info");
                       }}
-                      className="text-[9px] text-[#CD7F6D] font-semibold bg-white border border-[#F5E2DC] hover:bg-[#FAF0ED] px-2.5 py-1.5 rounded-md flex-1 text-center transition-all"
+                      className="text-[9px] text-[var(--c-cyan)] font-semibold bg-[var(--c-white)] border border-[var(--c-cyan-bg2)] hover:bg-[var(--c-cyan-bg)] px-2.5 py-1.5 rounded-md flex-1 text-center transition-all"
                     >
                       {t("🗑️ 清空本地密钥", "Clear Key")}
                     </button>
                   </div>
 
                   {/* Connection Warning */}
-                  <div className="bg-[#FDFBF9] border border-[#F4EADA] p-2.5 rounded-lg text-[9px] text-[#8E8A85] leading-relaxed">
+                  <div className="bg-[var(--c-white)] border border-[var(--c-surface6)] p-2.5 rounded-lg text-[9px] text-[var(--c-muted)] leading-relaxed">
                     💡 <strong>{t("离线直连声明", "Direct Browser Connection")}:</strong>{" "}
                     {t(
                       "此端直连大模型 API，无中间服务器拦截。您的 API 密钥及聊天历史仅安全保存在浏览器本地（LocalStorage/Chrome Storage）中，不会上传给第三方。本地 Ollama 请确保开启 CORS，添加环境变量 OLLAMA_ORIGINS=\"*\"。",
@@ -2083,20 +2837,99 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                   </div>
                 </div>
 
+                {/* AI IMPORT PERSONA QUICK ENTRY */}
+                <div className="bg-[var(--c-white)] border border-dashed border-[var(--c-accent-lt)]/60 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-[var(--c-muted)] font-bold uppercase tracking-wider flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--c-accent)]" />
+                      {t("AI 智能导入角色", "AI Import Persona")}
+                    </span>
+                    <span className="text-[8px] text-[var(--c-border2)] font-mono">LLM {"\u2192"} Agent</span>
+                  </div>
+                  <button
+                    onClick={() => aiImportInputRef.current?.click()}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg bg-[var(--c-white)] border border-[var(--c-border)] hover:bg-[var(--c-white)] hover:border-[var(--c-accent-lt)] text-xs font-semibold text-[var(--c-accent)] transition-all"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {t("上传角色文档", "Upload Persona Doc")}
+                  </button>
+                  <p className="text-[9px] text-[var(--c-muted)] leading-relaxed">
+                    {t("支持 .txt/.md/.docx/.xlsx 等，大模型自动识别角色性格并生成新智能体。", "Supports .txt/.md/.docx/.xlsx etc. LLM auto-detects character traits and creates a new agent.")}
+                  </p>
+                </div>
+
+                {/* CONVERSATION PREFERENCES */}
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card space-y-4">
+                  <div className="flex items-center gap-2 pb-2 border-b border-[var(--c-surface1)]">
+                    <Sparkles className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">
+                      {t("🎚️ 对话偏好（自动调参）", "🎚️ Conversation Preferences")}
+                    </h2>
+                  </div>
+                  <p className="text-[10px] text-[var(--c-muted)] leading-normal -mt-2">
+                    {t("根据你的偏好自动调整 temperature / max tokens，并把回复风格指令注入系统提示。", "Auto-adjusts temperature / max tokens and injects reply-style guidance based on your preference.")}
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold text-[var(--c-secondary)]">{t("回复风格", "Reply Style")}</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([["creative", "🎨 创意", "🎨 Creative"], ["balanced", "⚖️ 平衡", "⚖️ Balanced"], ["strict", "🧭 严谨", "🧭 Strict"]] as const).map(([val, zh, en]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setPrefStyle(val); localStorage.setItem("spl_pref_style", val); }}
+                          className={`text-[10px] font-semibold px-2 py-2 rounded-lg border transition-all ${prefStyle === val ? "bg-[var(--c-accent)] text-white border-[var(--c-accent)] shadow-sm" : "bg-[var(--c-white)] text-[var(--c-muted)] border-[var(--c-border)] hover:bg-[var(--c-surface2)]"}`}
+                        >
+                          {t(zh, en)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold text-[var(--c-secondary)]">{t("回复长度", "Reply Length")}</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([["short", "✂️ 简短", "✂️ Short"], ["medium", "📏 适中", "📏 Medium"], ["long", "📖 详细", "📖 Long"]] as const).map(([val, zh, en]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setPrefLength(val); localStorage.setItem("spl_pref_length", val); }}
+                          className={`text-[10px] font-semibold px-2 py-2 rounded-lg border transition-all ${prefLength === val ? "bg-[var(--c-accent)] text-white border-[var(--c-accent)] shadow-sm" : "bg-[var(--c-white)] text-[var(--c-muted)] border-[var(--c-border)] hover:bg-[var(--c-surface2)]"}`}
+                        >
+                          {t(zh, en)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold text-[var(--c-secondary)]">{t("语气", "Tone")}</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([["gentle", "💗 温柔", "💗 Gentle"], ["rational", "🧊 理性", "🧊 Rational"], ["humorous", "😄 幽默", "😄 Humorous"]] as const).map(([val, zh, en]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setPrefTone(val); localStorage.setItem("spl_pref_tone", val); }}
+                          className={`text-[10px] font-semibold px-2 py-2 rounded-lg border transition-all ${prefTone === val ? "bg-[var(--c-accent)] text-white border-[var(--c-accent)] shadow-sm" : "bg-[var(--c-white)] text-[var(--c-muted)] border-[var(--c-border)] hover:bg-[var(--c-surface2)]"}`}
+                        >
+                          {t(zh, en)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 {/* PERSONA PROMPT PREVIEW */}
-                <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                  <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[#F4EFEA]">
-                    <Brain className="w-4.5 h-4.5 text-[#967A55]" />
-                    <h2 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">
+                <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.015)] gemini-card">
+                  <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[var(--c-surface1)]">
+                    <Brain className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                    <h2 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">
                       {t("🧠 实时心理人格 System Prompt", "🧠 Dynamic System Prompt")}
                     </h2>
                   </div>
-                  <p className="text-[10px] text-[#8E8A85] leading-normal mb-3">
+                  <p className="text-[10px] text-[var(--c-muted)] leading-normal mb-3">
                     {t("由于心理流体在每秒和每次刺激后不断演变更新，大模型对话中注入的系统指令集也已实时映射了智能体的以下最新生理-心理阻抗、能量、自尊、创伤和压抑荷载：", "As the psychological fluids update in real-time, the model prompt incorporates the agent's active energy, self-esteem, active trauma, and repressions:")}
                   </p>
 
                   {/* 雷达图 + 指标条：直观呈现各流体数值（替代纯文本卡片） */}
-                  <div className="bg-[#FAF8F5] border border-[#EAE3D9] p-3 rounded-xl">
+                  <div className="bg-[var(--c-white)] border border-[var(--c-border)] p-3 rounded-xl">
                     <FluidRadar
                       data={Object.keys(snapshot.snap.fluid || {}).map((k) => {
                         const meta = FLUID_META[k];
@@ -2113,43 +2946,55 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                   {/* 折叠：查看原始 System Prompt */}
                   <button
                     onClick={() => setShowRawPrompt((v) => !v)}
-                    className="mt-2 text-[10px] text-[#967A55] font-semibold hover:underline"
+                    className="mt-2 text-[10px] text-[var(--c-accent)] font-semibold hover:underline"
                   >
                     {showRawPrompt ? t("收起原始 System Prompt", "Hide raw System Prompt") : t("查看原始 System Prompt", "View raw System Prompt")}
                   </button>
                   {showRawPrompt && (
-                    <div className="mt-2 bg-[#FAF8F5] border border-[#EAE3D9] p-3 rounded-xl max-h-[220px] overflow-y-auto">
-                      <pre className="text-[9px] text-[#615D5A] font-mono whitespace-pre-wrap leading-relaxed select-all">
+                    <div className="mt-2 bg-[var(--c-white)] border border-[var(--c-border)] p-3 rounded-xl max-h-[220px] overflow-y-auto">
+                      <pre className="text-[9px] text-[var(--c-secondary)] font-mono whitespace-pre-wrap leading-relaxed select-all">
                         {generateSystemPromptPreview()}
                       </pre>
                     </div>
                   )}
+                
+                    </div>
+                  </div>
                 </div>
-
-              </div>
-
-              {/* RIGHT COLUMN: FLUID CONSCIOUSNESS CHAT BOX (8 COLS) */}
-              <div className="lg:col-span-8 bg-white border border-[#EAE3D9] rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.015)] flex flex-col h-[680px] overflow-hidden">
+                </div>
+              )}
+              {/* CHAT BOX - FULL WIDTH */}
+              <div className="flex-1 bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.015)] flex flex-col overflow-hidden">
                 
                 {/* Chat header */}
-                <div className="bg-white border-b border-[#F4EFEA] p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-[#FAF8F5] border border-[#EAE3D9] flex items-center justify-center">
-                      <Sparkles className="w-4 h-4 text-[#967A55] animate-pulse" />
+                <div className="bg-[var(--c-white)] border-b border-[var(--c-surface1)] p-3 sm:p-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* 隐藏聊天头 Logo */}
+                    <div className="w-8 h-8 rounded-lg bg-[var(--c-white)] border border-[var(--c-border)] flex items-center justify-center shrink-0 hidden">
+                      <Sparkles className="w-4 h-4 text-[var(--c-accent)] animate-pulse" />
                     </div>
-                    <div>
-                      <h3 className="text-[10px] sm:text-xs font-bold text-[#2C2A29] font-display uppercase tracking-wide">
+                    <div className="min-w-0">
+                      <h3 className="text-[10px] sm:text-xs font-bold text-[var(--c-text)] font-display uppercase tracking-wide truncate sm:whitespace-normal">
                         {t("流体意识对话通道 (Psyche-Fluid Channel)", "Fluid Consciousness Channel")}
                       </h3>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[9px] sm:text-[10px] font-mono mt-0.5">
-                        <span className="text-[#7B9E7A]">{t("自尊", "Self-Esteem")}: <span className="font-bold">{((snapshot.snap.self_esteem || 0) * 100).toFixed(0)}%</span></span>
-                        <span className="text-[#7EA6B2]">{t("能量", "Energy")}: <span className="font-bold">{(snapshot.snap.energy || 0).toFixed(0)}/100</span></span>
-                        <span className="text-[#CD7F6D]">{t("疲劳", "Fatigue")}: <span className="font-bold">{((snapshot.snap.fatigue || 0) * 100).toFixed(0)}%</span></span>
-                        <span className="text-[#CDAA78]">{t("认知失调", "Cognitive Dissonance")}: <span className="font-bold">{(snapshot.snap.cognitive_dissonance || 0).toFixed(2)}</span></span>
+                        <span className="text-[var(--c-accent)]">{t("自尊", "Self-Esteem")}: <span className="font-bold">{((snapshot.snap.self_esteem || 0) * 100).toFixed(0)}%</span></span>
+                        <span className="text-[var(--c-bluecyan)]">{t("能量", "Energy")}: <span className="font-bold">{(snapshot.snap.energy || 0).toFixed(0)}/100</span></span>
+                        <span className="text-[var(--c-cyan)]">{t("疲劳", "Fatigue")}: <span className="font-bold">{((snapshot.snap.fatigue || 0) * 100).toFixed(0)}%</span></span>
+                        <span className="text-[var(--c-accent-lt2)]">{t("认知失调", "Cognitive Dissonance")}: <span className="font-bold">{(snapshot.snap.cognitive_dissonance || 0).toFixed(2)}</span></span>
                       </div>
                     </div>
                   </div>
-                  
+
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setShowApiConfig(!showApiConfig)}
+                    title={t("API 设置", "API Settings")}
+                    className={`text-[10px] sm:text-xs font-semibold border rounded-md px-2.5 py-1.5 bg-[var(--c-white)] transition-all active:scale-95 flex items-center gap-1 ${showApiConfig ? "text-white bg-[var(--c-accent)] border-[var(--c-accent)]" : "text-[var(--c-muted)] hover:text-[var(--c-accent)] border-[var(--c-border)] hover:bg-[var(--c-white)]"}`}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span className="lowercase">api</span>
+                  </button>
                   <button
                     onClick={() => {
                       if (chatMessages.length === 0) {
@@ -2177,7 +3022,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                       URL.revokeObjectURL(url);
                       addNotification(t("聊天记录已导出为 txt", "Chat exported as txt"), "success");
                     }}
-                    className="text-[10px] sm:text-xs text-[#8E8A85] hover:text-[#7B9E7A] font-semibold border border-[#EAE3D9] rounded-md px-2.5 py-1.5 bg-white hover:bg-[#FAF8F5] transition-all active:scale-95 flex items-center gap-1"
+                    className="text-[10px] sm:text-xs text-[var(--c-muted)] hover:text-[var(--c-accent)] font-semibold border border-[var(--c-border)] rounded-md px-2.5 py-1.5 bg-[var(--c-white)] hover:bg-[var(--c-white)] transition-all active:scale-95 flex items-center gap-1"
                     title={t("导出对话记录", "Export chat")}
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -2200,14 +3045,15 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                         ]);
                       }
                     }}
-                    className="text-[10px] sm:text-xs text-[#8E8A85] hover:text-[#CD7F6D] font-semibold border border-[#EAE3D9] rounded-md px-2.5 py-1.5 bg-white hover:bg-[#FAF8F5] transition-all active:scale-95"
+                    className="text-[10px] sm:text-xs text-[var(--c-muted)] hover:text-[var(--c-cyan)] font-semibold border border-[var(--c-border)] rounded-md px-2.5 py-1.5 bg-[var(--c-white)] hover:bg-[var(--c-white)] transition-all active:scale-95"
                   >
                     {t("🗑️ 清空历史", "Clear Chat")}
                   </button>
+                  </div>
                 </div>
 
                 {/* Messages list */}
-                <div className="flex-1 bg-[#FAF8F5] p-3 sm:p-5 overflow-y-auto space-y-3 sm:space-y-4">
+                <div className="flex-1 bg-[var(--c-white)] p-3 sm:p-5 overflow-y-auto space-y-3 sm:space-y-4">
                   {(() => {
                     const isWelcome = chatMessages.length > 0 && chatMessages[0].id === "welcome";
                     const displayMessages = isWelcome ? chatMessages.slice(1) : chatMessages;
@@ -2216,44 +3062,69 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                       <>
                         {isWelcome && (
                           <div className="px-1 pt-2 pb-1">
-                            <div className="bg-white border border-[#EAE3D9] rounded-2xl p-5 sm:p-6 shadow-sm max-w-lg mx-auto text-center">
-                              <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto mb-3 sm:mb-4 rounded-2xl bg-gradient-to-br from-[#F4EDE2] to-[#EBE0D1] border border-[#DFD4C4] flex items-center justify-center shadow-inner">
-                                <Brain className="w-6 h-6 sm:w-7 sm:h-7 text-[#967A55]" />
+                            <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-5 sm:p-6 shadow-sm max-w-lg mx-auto text-center">
+                              <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto mb-3 sm:mb-4 rounded-2xl bg-gradient-to-br from-[var(--c-surface14)] to-[var(--c-surface15)] border border-[var(--c-surface16)] flex items-center justify-center shadow-inner">
+                                <Brain className="w-6 h-6 sm:w-7 sm:h-7 text-[var(--c-accent)]" />
                               </div>
-                              <p className="text-xs sm:text-sm text-[#3A3633] leading-relaxed whitespace-pre-wrap">
+                              <p className="text-xs sm:text-sm text-[var(--c-text-st)] leading-relaxed whitespace-pre-wrap">
                                 {chatMessages[0].content}
                               </p>
                             </div>
                           </div>
                         )}
 
-                        {displayMessages.map((msg) => {
+                        {displayMessages.map((msg, msgIndex) => {
                           const isUser = msg.role === "user";
                           return (
-                            <div
+                            <motion.div
                               key={msg.id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.35, delay: Math.min(msgIndex * 0.06, 0.45), ease: "easeOut" }}
                               className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-2.5`}
                             >
                               {!isUser && (
-                                <div className="w-7 h-7 rounded-lg bg-white border border-[#EAE3D9] flex items-center justify-center shrink-0 shadow-xs">
-                                  <Brain className="w-3.5 h-3.5 text-[#967A55]" />
+                                <div className="w-7 h-7 rounded-lg bg-[var(--c-white)] border border-[var(--c-border)] flex items-center justify-center shrink-0 shadow-xs">
+                                  <Brain className="w-3.5 h-3.5 text-[var(--c-accent)]" />
                                 </div>
                               )}
                               <div className={`flex flex-col ${isUser ? "items-end max-w-[80%] sm:max-w-[70%]" : "items-start max-w-[85%] sm:max-w-[70%]"}`}>
                                 <div
                                   className={`px-4 py-3 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs whitespace-pre-wrap ${
                                     isUser
-                                      ? "bg-gradient-to-br from-[#C5A880] to-[#967A55] text-white rounded-tr-none"
-                                      : "bg-white border border-[#EAE3D9] text-[#2C2A29] rounded-tl-none"
+                                      ? "bg-gradient-to-br from-[var(--c-accent-lt)] to-[var(--c-accent)] text-white rounded-tr-none"
+                                      : "bg-[var(--c-white)] border border-[var(--c-border)] text-[var(--c-text)] rounded-tl-none"
                                   }`}
                                 >
+                                  {msg.attachments && msg.attachments.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                      {msg.attachments.map((att) =>
+                                        att.kind === "image" && att.dataUrl ? (
+                                          <img
+                                            key={att.id}
+                                            src={att.dataUrl}
+                                            alt={att.name}
+                                            className="w-24 h-24 object-cover rounded-lg border border-white/30 shadow-sm"
+                                          />
+                                        ) : (
+                                          <div
+                                            key={att.id}
+                                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/10 text-white/90 text-[10px] font-semibold max-w-[200px]"
+                                          >
+                                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                                            <span className="truncate">{att.name}</span>
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
+                                  )}
                                   {msg.content}
                                 </div>
-                                <span className="text-[8px] text-[#8E8A85] font-mono mt-1 px-1">
+                                <span className="text-[8px] text-[var(--c-muted)] font-mono mt-1 px-1">
                                   {msg.timestamp}
                                 </span>
                               </div>
-                            </div>
+                            </motion.div>
                           );
                         })}
                       </>
@@ -2262,68 +3133,70 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
 
                   {isTyping && (
                     <div className="flex justify-start items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-white border border-[#EAE3D9] flex items-center justify-center shrink-0 shadow-xs">
-                        <Brain className="w-3.5 h-3.5 text-[#967A55] animate-spin" />
+                      <div className="w-7 h-7 rounded-lg bg-[var(--c-white)] border border-[var(--c-border)] flex items-center justify-center shrink-0 shadow-xs">
+                        <Brain className="w-3.5 h-3.5 text-[var(--c-accent)] animate-spin" />
                       </div>
-                      <div className="px-4 py-2 bg-white border border-[#EAE3D9] text-[#8E8A85] rounded-2xl rounded-tl-none text-[10px] italic flex items-center gap-1.5 shadow-xs">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#967A55] animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#967A55] animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#967A55] animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                      <div className="px-4 py-2 bg-[var(--c-white)] border border-[var(--c-border)] text-[var(--c-muted)] rounded-2xl rounded-tl-none text-[10px] italic flex items-center gap-1.5 shadow-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--c-accent)] animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--c-accent)] animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--c-accent)] animate-bounce" style={{ animationDelay: "300ms" }}></span>
                         <span>{t("心脑流体运算中...", "Fluid computing...")}</span>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Pre-seeded prompts pills */}
-                <div className="bg-[#FAF8F5] border-t border-[#F4EFEA] px-5 py-2.5 flex flex-wrap gap-2 items-center">
-                  <span className="text-[9px] text-[#8E8A85] font-semibold">{t("💡 心理测试语:", "💡 Triggers:")}</span>
-                  {[
-                    {
-                      zh: "批判我的想法，伤害我的自尊",
-                      en: "Critique my ideas and lower my self-esteem",
-                      desc: "🚨 Threat & Anger trigger"
-                    },
-                    {
-                      zh: "真诚肯定我，给我拥抱与支持",
-                      en: "Sincere affirmation, support, and a big hug",
-                      desc: "❤️ Trust & Belonging trigger"
-                    },
-                    {
-                      zh: "详细拆解并分析你的心理状态",
-                      en: "Deconstruct and analyze your own active psy-state",
-                      desc: "🧠 Intellectualization trigger"
-                    }
-                  ].map((seed, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setInputMessage(t(seed.zh, seed.en))}
-                      className="text-[10px] px-3 py-1.5 bg-white hover:bg-[#FAF8F5] border border-[#EAE3D9] text-[#615D5A] hover:text-[#967A55] rounded-full transition-all shadow-2xs active:scale-95"
-                    >
-                      {t(seed.zh, seed.en)}
-                    </button>
-                  ))}
-                </div>
-
                 {/* Input form */}
                 <form
                   onSubmit={handleSendMessage}
-                  className="bg-white border-t border-[#F4EFEA] p-4 flex gap-2.5 items-center"
+                  className="bg-[var(--c-white)] border-t border-[var(--c-surface1)] p-4 flex flex-col gap-2"
                 >
-                  <input
-                    type="text"
-                    value={inputMessage}
-                    onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder={t("向流体心智输入意识信息...", "Type to transmit stimulus message to the fluid mind...")}
-                    className="flex-1 px-4 py-3 text-xs bg-[#FAF8F5] border border-[#EAE3D9] rounded-xl focus:outline-none focus:border-[#967A55] placeholder:text-[#BEBAAF]"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isTyping}
-                    className="p-3 bg-[#967A55] hover:bg-[#836946] text-white rounded-xl active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-sm"
-                  >
-                    <Send className="w-4 h-4 text-white" />
-                  </button>
+                  <div className="flex gap-2 items-center">
+                    <input type="file" id="chat-file-input" className="hidden" onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        if (f.type.startsWith("image/")) {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setInputMessage(prev => prev + (prev ? " " : "") + `[图片: ${f.name}]`);
+                            setChatAttachments(prev => [...prev, { id: Math.random().toString(36).substring(7), kind: "image", name: f.name, mime: f.type, size: f.size, dataUrl: reader.result as string }]);
+                          };
+                          reader.readAsDataURL(f);
+                        } else {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const text = reader.result as string;
+                            const truncated = text.length > 800 ? text.substring(0, 800) + "...[截断]" : text;
+                            setInputMessage(prev => prev + (prev ? " " : "") + `[附件 ${f.name}]: ${truncated}`);
+                          };
+                          reader.readAsText(f);
+                        }
+                      }
+                      e.target.value = "";
+                    }} />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById("chat-file-input")?.click()}
+                      title={t("上传文件/图片", "Upload file/image")}
+                      className="p-1.5 rounded-full border border-[var(--c-border)] text-[var(--c-muted)] hover:text-[var(--c-secondary)] hover:border-[var(--c-accent)] hover:bg-[var(--c-surface7)] transition-all shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                    <input
+                      type="text"
+                      value={inputMessage}
+                      onChange={(e) => setInputMessage(e.target.value)}
+                      placeholder={t("向流体心智输入意识信息...", "Type to transmit stimulus message to the fluid mind...")}
+                      className="flex-1 px-3 py-1.5 text-xs bg-[var(--c-white)] border border-[var(--c-border)] rounded-lg focus:outline-none focus:border-[var(--c-accent)] placeholder:text-[var(--c-border2)]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isTyping}
+                      className="gemini-btn p-2 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white rounded-lg active:scale-95 transition-all flex items-center justify-center shrink-0 shadow-sm"
+                    >
+                      <Send className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
                 </form>
 
               </div>
@@ -2340,122 +3213,122 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
             >
               
               {/* CHROME EXTENSION BUILDER INFO CARD */}
-              <div className="bg-white border border-[#EAE3D9] rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.015)] relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-[#C5A880]/5 blur-3xl rounded-full"></div>
+              <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.015)] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-[var(--c-accent-lt)]/5 blur-3xl rounded-full pointer-events-none"></div>
                 
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b border-[#F4EFEA]">
-                  <Download className="w-5 h-5 text-[#967A55]" />
+                <div className="flex items-center gap-3 mb-4 pb-3 border-b border-[var(--c-surface1)]">
+                  <Download className="w-5 h-5 text-[var(--c-accent)]" />
                   <div>
-                    <h2 className="text-base font-bold font-display text-[#2C2A29] tracking-wide">{t("打包与下载 Chrome 扩展 ZIP 文件", "Pack & download Chrome extension ZIP")}</h2>
-                    <p className="text-xs text-[#8E8A85] mt-0.5">{t("将本心理流体推理智能体作为扩展打包并部署到您的浏览器中。", "Pack this psychological fluid reasoning agent as an extension and deploy it to your browser.")}</p>
+                    <h2 className="text-base font-bold font-display text-[var(--c-text)] tracking-wide">{t("打包与下载 Chrome 扩展 ZIP 文件", "Pack & download Chrome extension ZIP")}</h2>
+                    <p className="text-xs text-[var(--c-muted)] mt-0.5">{t("将本心理流体推理智能体作为扩展打包并部署到您的浏览器中。", "Pack this psychological fluid reasoning agent as an extension and deploy it to your browser.")}</p>
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <div className="bg-[#FAF8F5] p-4 rounded-xl border border-[#EAE3D9] space-y-2">
-                    <h3 className="text-xs font-semibold text-[#2C2A29] flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#967A55]"></span>
-                      扩展规格 (Package Specification)
+                  <div className="bg-[var(--c-white)] p-4 rounded-xl border border-[var(--c-border)] space-y-2">
+                    <h3 className="text-xs font-semibold text-[var(--c-text)] flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--c-accent)]"></span>
+                      {t("扩展规格", "Package Specification")}
                     </h3>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[11px] font-mono">
                       <div>
-                        <span className="text-[#8E8A85]">Manifest Version:</span>{" "}
-                        <span className="text-[#615D5A] font-bold">MV3 (Latest)</span>
+                        <span className="text-[var(--c-muted)]">Manifest Version:</span>{" "}
+                        <span className="text-[var(--c-secondary)] font-bold">MV3 (Latest)</span>
                       </div>
                       <div>
-                        <span className="text-[#8E8A85]">Build Mode:</span>{" "}
-                        <span className="text-[#615D5A] font-bold">Vite Minified Production</span>
+                        <span className="text-[var(--c-muted)]">Build Mode:</span>{" "}
+                        <span className="text-[var(--c-secondary)] font-bold">Vite Minified Production</span>
                       </div>
                       <div>
-                        <span className="text-[#8E8A85]">Popup Context:</span>{" "}
-                        <span className="text-[#615D5A] font-bold">Full Offline SPA</span>
+                        <span className="text-[var(--c-muted)]">Popup Context:</span>{" "}
+                        <span className="text-[var(--c-secondary)] font-bold">Full Offline SPA</span>
                       </div>
                       <div>
-                        <span className="text-[#8E8A85]">Asset Mode:</span>{" "}
-                        <span className="text-[#615D5A] font-bold">Relative Path (./)</span>
+                        <span className="text-[var(--c-muted)]">Asset Mode:</span>{" "}
+                        <span className="text-[var(--c-secondary)] font-bold">Relative Path (./)</span>
                       </div>
                       <div>
-                        <span className="text-[#8E8A85]">Permissions:</span>{" "}
-                        <span className="text-[#615D5A] font-bold">["storage"]</span>
+                        <span className="text-[var(--c-muted)]">Permissions:</span>{" "}
+                        <span className="text-[var(--c-secondary)] font-bold">["storage"]</span>
                       </div>
                       <div>
-                        <span className="text-[#8E8A85]">Output Target:</span>{" "}
-                        <span className="text-[#615D5A] font-bold">extension.zip</span>
+                        <span className="text-[var(--c-muted)]">Output Target:</span>{" "}
+                        <span className="text-[var(--c-secondary)] font-bold">extension.zip</span>
                       </div>
                     </div>
                   </div>
 
                   {/* STEP BY STEP LOADING TUTORIAL */}
                   <div className="space-y-3">
-                    <h3 className="text-xs font-semibold text-[#2C2A29] flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-[#7B9E7A]" />
-                      部署到 Chrome 浏览器的步骤
+                    <h3 className="text-xs font-semibold text-[var(--c-text)] flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-[var(--c-accent)]" />
+                      {t("部署到 Chrome 浏览器的步骤", "Steps to deploy to Chrome browser")}
                     </h3>
 
-                    <div className="space-y-2 text-xs text-[#615D5A] pl-1">
+                    <div className="space-y-2 text-xs text-[var(--c-secondary)] pl-1">
                       <div className="flex gap-2.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#FAF8F5] border border-[#EAE3D9] text-[10px] font-bold text-[#967A55] shrink-0 shadow-xs">1</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--c-white)] border border-[var(--c-border)] text-[10px] font-bold text-[var(--c-accent)] shrink-0 shadow-xs">1</span>
                         <p className="mt-0.5">
                           {t("点击下方 “下载 Chrome 扩展 ZIP” 按钮，下载由编译引擎打包生成的 extension.zip 压缩包。", "Click the \"Download Chrome Extension ZIP\" button below to download the extension.zip archive packaged by the build engine.")}
                         </p>
                       </div>
 
                       <div className="flex gap-2.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#FAF8F5] border border-[#EAE3D9] text-[10px] font-bold text-[#967A55] shrink-0 shadow-xs">2</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--c-white)] border border-[var(--c-border)] text-[10px] font-bold text-[var(--c-accent)] shrink-0 shadow-xs">2</span>
                         <p className="mt-0.5">
                           {t("下载完成后，将 extension.zip 解压到一个本地磁盘目录（例如命名为 spl-extension 文件夹）。", "After download, extract extension.zip into a local directory (e.g. named spl-extension).")}
                         </p>
                       </div>
 
                       <div className="flex gap-2.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#FAF8F5] border border-[#EAE3D9] text-[10px] font-bold text-[#967A55] shrink-0 shadow-xs">3</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--c-white)] border border-[var(--c-border)] text-[10px] font-bold text-[var(--c-accent)] shrink-0 shadow-xs">3</span>
                         <p className="mt-0.5">
-                          打开 Google Chrome 浏览器，在地址栏输入 <code>chrome://extensions</code> 并回车（或通过右上角 菜单 → 扩展程序 → 管理扩展程序 选项进入）。
+                          {t("打开 Google Chrome 浏览器，在地址栏输入", "Open Google Chrome browser, type")} <code>chrome://extensions</code> {t("并回车（或通过右上角 菜单 → 扩展程序 → 管理扩展程序 选项进入）。", "in the address bar and press Enter (or access via top-right Menu → Extensions → Manage Extensions).")}
                         </p>
                       </div>
 
                       <div className="flex gap-2.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#FAF8F5] border border-[#EAE3D9] text-[10px] font-bold text-[#967A55] shrink-0 shadow-xs">4</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--c-white)] border border-[var(--c-border)] text-[10px] font-bold text-[var(--c-accent)] shrink-0 shadow-xs">4</span>
                         <p className="mt-0.5">
                           {t("在扩展管理页面的右上角，开启 “开发者模式 (Developer Mode)” 开关。", "In the top-right of the extensions page, toggle on \"Developer Mode\".")}
                         </p>
                       </div>
 
                       <div className="flex gap-2.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#FAF8F5] border border-[#EAE3D9] text-[10px] font-bold text-[#967A55] shrink-0 shadow-xs">5</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--c-white)] border border-[var(--c-border)] text-[10px] font-bold text-[var(--c-accent)] shrink-0 shadow-xs">5</span>
                         <p className="mt-0.5">
                           {t("点击左上角的 “加载已解压的扩展程序 (Load unpacked)” 按钮，在弹出的文件浏览器中选择您解压出的 dist 文件夹。", "Click \"Load unpacked\" in the top-left, then select the extracted dist folder in the file browser.")}
                         </p>
                       </div>
 
                       <div className="flex gap-2.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#FAF8F5] border border-[#EAE3D9] text-[10px] font-bold text-[#967A55] shrink-0 shadow-xs">6</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--c-white)] border border-[var(--c-border)] text-[10px] font-bold text-[var(--c-accent)] shrink-0 shadow-xs">6</span>
                         <p className="mt-0.5">
-                          部署成功！您可以直接在 Chrome 工具栏中点击扩展图标，唤起完全单机运行、离线持久化的心理智能体看板。
+                          {t("部署成功！您可以直接在 Chrome 工具栏中点击扩展图标，唤起完全单机运行、离线持久化的心理智能体看板。", "Deployment successful! Click the extension icon in the Chrome toolbar to launch the fully standalone, offline-persistent psychological agent dashboard.")}
                         </p>
                       </div>
                     </div>
                   </div>
 
                   {/* ACTION PACKAGING CARD WITH GLOWING DOWNLOAD BUTTON */}
-                  <div className="border-t border-[#F4EFEA] pt-6 flex flex-col items-center justify-center text-center">
+                  <div className="border-t border-[var(--c-surface1)] pt-6 flex flex-col items-center justify-center text-center">
                     
                     <div className="mb-4">
-                      <div className="text-xs text-[#8E8A85]">{t("静态资源与构建输出压缩包", "Static assets and build output archive")}</div>
-                      <div className="text-[10px] text-[#BEBAAF] mt-1 font-mono">{t("包含：manifest.json, popup index.html, JS/CSS bundles, icon.png", "Includes: manifest.json, popup index.html, JS/CSS bundles, icon.png")}</div>
+                      <div className="text-xs text-[var(--c-muted)]">{t("静态资源与构建输出压缩包", "Static assets and build output archive")}</div>
+                      <div className="text-[10px] text-[var(--c-border2)] mt-1 font-mono">{t("包含：manifest.json, popup index.html, JS/CSS bundles, icon.png", "Includes: manifest.json, popup index.html, JS/CSS bundles, icon.png")}</div>
                     </div>
 
                     <a
                       href="./extension.zip"
                       download="extension.zip"
-                      className="inline-flex items-center gap-3 px-8 py-3.5 bg-[#967A55] hover:bg-[#836946] text-white font-bold text-sm rounded-xl shadow-md transition-all font-display active:scale-[0.98]"
+                      className="inline-flex items-center gap-3 px-8 py-3.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-sm rounded-xl shadow-md transition-all font-display active:scale-[0.98]"
                     >
                       <Download className="w-5 h-5 text-white" />
                       <span>⚡️ {t("下载 Chrome 扩展 ZIP 包 (extension.zip)", "Download Chrome extension ZIP (extension.zip)")}</span>
                     </a>
 
-                    <p className="text-[10px] text-[#8E8A85] mt-3 font-mono">
-                      * 注：本打包文件基于最新 Vite 生成的 minified 代码包。如果您在开发环境下初次打包，请确保在终端内执行过 <code>npm run build</code> 来生成该 zip 文件。
+                    <p className="text-[10px] text-[var(--c-muted)] mt-3 font-mono">
+                      {t("* 注：本打包文件基于最新 Vite 生成的 minified 代码包。如果您在开发环境下初次打包，请确保在终端内执行过", "* Note: This package is based on the latest Vite-generated minified build. If packaging for the first time in a dev environment, ensure you have run")} <code>npm run build</code> {t("来生成该 zip 文件。", "in the terminal to generate the zip file.")}
                     </p>
 
                   </div>
@@ -2465,17 +3338,17 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
               </div>
 
               {/* SECOND PERSPECTIVE CAUSAL ENGINE ESSENCE SHEET */}
-              <div className="bg-white border border-[#EAE3D9] rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
-                <div className="flex items-center gap-2.5 mb-3 pb-2 border-b border-[#F4EFEA]">
-                  <Brain className="w-4.5 h-4.5 text-[#967A55]" />
-                  <h3 className="text-sm font-semibold font-display text-[#2C2A29] tracking-wide">{t("第二视角因果决定论规约", "Second-perspective causal determinism protocol")}</h3>
+              <div className="bg-[var(--c-white)] border border-[var(--c-border)] rounded-2xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.015)]">
+                <div className="flex items-center gap-2.5 mb-3 pb-2 border-b border-[var(--c-surface1)]">
+                  <Brain className="w-4.5 h-4.5 text-[var(--c-accent)]" />
+                  <h3 className="text-sm font-semibold font-display text-[var(--c-text)] tracking-wide">{t("第二视角因果决定论规约", "Second-perspective causal determinism protocol")}</h3>
                 </div>
-                <div className="text-xs text-[#615D5A] space-y-2 leading-relaxed font-mono">
+                <div className="text-xs text-[var(--c-secondary)] space-y-2 leading-relaxed font-mono">
                   <p>
-                    [逻辑拓扑]: 本智能体放弃了一切关于心理状态的概率学推理(Probabilistic Inference)，全面转换为因果决定论机制。
+                    {t("[逻辑拓扑]: 本智能体放弃了一切关于心理状态的概率学推理(Probabilistic Inference)，全面转换为因果决定论机制。", "[Logical Topology]: This agent abandons all probabilistic inference of psychological states, fully converting to a causal determinism mechanism.")}
                   </p>
                   <p>
-                    [决定论链条]: 输入事件 (E) → 认知增益 (Appraisal) → 瞬时流体映射 (Fluid Map) → 防御层级过滤 (Defense Filtration) → 压抑与隐压调节 (Repression Load) → 慢心境自更新 (Mood Dynamics) → 时间膨胀调制 (Dilation)。
+                    {t("[决定论链条]: 输入事件 (E) → 认知增益 (Appraisal) → 瞬时流体映射 (Fluid Map) → 防御层级过滤 (Defense Filtration) → 压抑与隐压调节 (Repression Load) → 慢心境自更新 (Mood Dynamics) → 时间膨胀调制 (Dilation)。", "[Determinism Chain]: Input Event (E) → Cognitive Appraisal → Instantaneous Fluid Map → Defense Filtration → Repression Load → Mood Dynamics → Time Dilation.")}
                   </p>
                   <p>
                     [反事实守恒]: 任何外在认可的匮乏或羞耻的过载，都会严格导致自尊指标在微观时间尺度内以对应斜率沉降，直至引发防御壁垒或隐压雪崩破裂。
@@ -2487,9 +3360,9 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
               <div className="flex justify-center">
                 <button
                   onClick={() => setActiveTab("dashboard")}
-                  className="px-6 py-2 rounded-xl bg-white border border-[#EAE3D9] text-xs text-[#8E8A85] hover:text-[#615D5A] font-semibold active:scale-[0.98] transition-all shadow-xs"
+                  className="px-6 py-2 rounded-xl bg-[var(--c-white)] border border-[var(--c-border)] text-xs text-[var(--c-muted)] hover:text-[var(--c-secondary)] font-semibold active:scale-[0.98] transition-all shadow-xs"
                 >
-                  ← 返回心理引擎状态看板
+                  {t("← 返回心理引擎状态看板", "← Back to psychological engine dashboard")}
                 </button>
               </div>
 
@@ -2499,73 +3372,111 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
         </AnimatePresence>
       </main>
 
-      {/* ========== FLOATING ACTION BUTTON: AGENT LIST ========== */}
-      <button
-        onClick={openAgentList}
-        title={t("智能体库 / Agent Library", "智能体库 / Agent Library")}
-        aria-label={t("打开智能体列表", "Open agent library")}
-        className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-40 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-[#C5A880] via-[#DBC9B5] to-[#967A55] text-white shadow-lg shadow-[#967A55]/30 hover:shadow-xl hover:shadow-[#967A55]/40 flex items-center justify-center transition-all duration-300 hover:scale-110 hover:-translate-y-1 active:scale-95"
-      >
-        <Users className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={2.2} />
-        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#7B9E7A] border-2 border-white shadow-sm animate-pulse"></span>
-      </button>
+      {/* ========== BOTTOM NAVIGATION: CHAT + PERSONALITY (Dashboard top-right) ========== */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[72] flex items-center gap-1 bg-[var(--c-white)]/95 backdrop-blur-md p-1 rounded-2xl border border-[var(--c-border)] shadow-lg shadow-black/10">
+        <button
+          onClick={() => setActiveTab("chat")}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+            activeTab === "chat"
+              ? "bg-gradient-to-br from-[var(--c-accent-lt)] via-[var(--c-accent-soft)] to-[var(--c-accent)] text-white shadow-md"
+              : "text-[var(--c-muted)] hover:text-[var(--c-secondary)] hover:bg-[var(--c-surface7)]"
+          }`}
+        >
+          <Send className="w-4 h-4" />
+          {t("对话", "Chat")}
+        </button>
 
-      {/* ========== AGENT LIST MODAL ========== */}
+        <span className="w-px h-6 bg-[var(--c-border)] mx-0.5" aria-hidden="true" />
+
+        <button
+          onClick={openAgentList}
+          title={t("人格", "Personality")}
+          aria-label={t("打开智能体库", "Open agent library")}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all text-[var(--c-muted)] hover:text-[var(--c-secondary)] hover:bg-[var(--c-surface7)]"
+        >
+          <Users className="w-4 h-4" />
+          {t("人格", "Personality")}
+        </button>
+      </div>
+
+            {/* ========== AGENT LIST DRAGGABLE PANEL ========== */}
       <AnimatePresence>
         {isAgentListOpen && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={closeAgentList}
-              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-label={t("智能体库", "Agent Library")}
+          <motion.div
+            ref={agentPanelRef}
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={{ duration: 0.2 }}
+            role="dialog"
+            aria-label={t("智能体库", "Agent Library")}
+            className="fixed z-[65] bg-[var(--c-white)] rounded-2xl shadow-2xl shadow-black/15 border border-[var(--c-border)] flex flex-col overflow-hidden"
+            style={{
+              left: agentPanelPos ? `${agentPanelPos.x}px` : undefined,
+              top: agentPanelPos ? `${agentPanelPos.y}px` : undefined,
+              right: agentPanelPos ? undefined : 20,
+              bottom: agentPanelPos ? undefined : 84,
+              width: "min(92vw, 28rem)",
+              maxHeight: "min(80vh, 36rem)",
+            }}
+          >
+            {/* Header (drag handle) */}
+            <div
+              onMouseDown={handlePanelDragStart}
+              onTouchStart={handlePanelDragStart}
+              className="flex items-center justify-between px-4 py-3 border-b border-[var(--c-surface1)] bg-gradient-to-r from-[var(--c-white)] to-[var(--c-white)] select-none cursor-move touch-none"
             >
-              {/* Modal panel */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.25, ease: "easeOut" }}
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white rounded-2xl shadow-2xl shadow-black/10 w-[92vw] max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-[#EAE3D9]"
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[#F4EFEA] bg-gradient-to-r from-[#FDFBF9] to-white">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#C5A880] via-[#DBC9B5] to-[#967A55] p-0.5 shadow-sm">
-                      <div className="w-full h-full rounded-[9px] bg-white flex items-center justify-center">
-                        <Users className="w-4.5 h-4.5 text-[#967A55]" />
-                      </div>
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-bold font-display text-[#2C2A29] tracking-wide">
-                        {t("🎭 智能体库", "🎭 Agent Library")}
-                      </h2>
-                      <p className="text-[10px] text-[#8E8A85] mt-0.5">
-                        {t(
-                          `共 ${getAgentsList().length} 个人格 · ${customAgents.length} 个自定义`,
-                          `${getAgentsList().length} agents total · ${customAgents.length} custom`
-                        )}
-                      </p>
-                    </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--c-accent-lt)] via-[var(--c-accent-soft)] to-[var(--c-accent)] p-0.5 shadow-sm">
+                  <div className="w-full h-full rounded-[7px] bg-[var(--c-white)] flex items-center justify-center">
+                    <Users className="w-4 h-4 text-[var(--c-accent)]" />
                   </div>
-                  <button
-                    onClick={closeAgentList}
-                    aria-label={t("关闭", "Close")}
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-[#8E8A85] hover:bg-[#F1ECE4] hover:text-[#615D5A] transition-all"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
                 </div>
+                <div>
+                  <h2 className="text-xs font-bold font-display text-[var(--c-text)] tracking-wide">
+                    {t("🎭 智能体库", "🎭 Agent Library")}
+                  </h2>
+                  <p className="text-[9px] text-[var(--c-muted)] mt-0.5">
+                    {t(
+                      `${getAgentsList().length} 个人格 · ${customAgents.length} 个自定义`,
+                      `${getAgentsList().length} agents · ${customAgents.length} custom`
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setAgentPanelMinimized(v => !v); }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  aria-label={t("最小化", "Minimize")}
+                  title={t("最小化", "Minimize")}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[var(--c-muted)] hover:bg-[var(--c-surface2)] hover:text-[var(--c-secondary)] transition-all"
+                >
+                  {agentPanelMinimized ? (
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  ) : (
+                    <Minus className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); closeAgentList(); }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  aria-label={t("关闭", "Close")}
+                  title={t("关闭", "Close")}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[var(--c-muted)] hover:bg-[var(--c-surface2)] hover:text-[var(--c-secondary)] transition-all"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
 
+            {/* Body (hidden when minimized) */}
+            {!agentPanelMinimized && (
+              <>
                 {/* Agent list */}
-                <div className="flex-1 overflow-y-auto p-5">
+                <div className="flex-1 overflow-y-auto p-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {getAgentsList().map((preset) => {
                       const isActive = preset.id === activeAgentId;
@@ -2579,21 +3490,19 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                               if (isEditing) return;
                               loadAgentPreset(preset);
                               addNotification(
-                                lang === "zh"
-                                  ? `🎭 已切换为: ${preset.name}`
-                                  : `🎭 Switched to: ${getAgentName(preset)}`,
+                                `🎭 ${t("已切换为", "Switched to")}: ${getAgentName(preset)}`,
                                 "success"
                               );
                             }}
                             className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between relative group ${
                               isActive
-                                ? "bg-[#FAF7F2] border-[#C5A880] shadow-sm ring-1 ring-[#C5A880]"
-                                : "bg-white border-[#EAE3D9] hover:bg-[#FAF8F5] hover:border-[#BEBAAF]"
-                            } ${isEditing ? "ring-2 ring-[#967A55]" : ""}`}
+                                ? "bg-[var(--c-surface9)] border-[var(--c-accent-lt)] shadow-sm ring-1 ring-[var(--c-accent-lt)]"
+                                : "bg-[var(--c-white)] border-[var(--c-border)] hover:bg-[var(--c-white)] hover:border-[var(--c-border2)]"
+                            } ${isEditing ? "ring-2 ring-[var(--c-accent)]" : ""}`}
                           >
                             {/* Builtin badge */}
                             {isBuiltin && (
-                              <span className="absolute top-2 left-2 text-[7px] font-bold uppercase tracking-wider text-[#8E8A85] bg-[#F1ECE4] px-1.5 py-0.5 rounded shadow-xs">
+                              <span className="absolute top-2 left-2 text-[7px] font-bold uppercase tracking-wider text-[var(--c-muted)] bg-[var(--c-surface2)] px-1.5 py-0.5 rounded shadow-xs">
                                 {t("内置", "BUILTIN")}
                               </span>
                             )}
@@ -2604,7 +3513,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                                 <button
                                   onClick={(e) => handleStartEdit(preset, e)}
                                   title={t("编辑", "Edit")}
-                                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[#967A55] hover:bg-[#F1ECE4] transition-all"
+                                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[var(--c-accent)] hover:bg-[var(--c-surface2)] transition-all"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
@@ -2612,7 +3521,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                               <button
                                 onClick={(e) => handleExportAgent(preset, e)}
                                 title={t("导出 JSON", "Export JSON")}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[#7EA6B2] hover:bg-[#EDF2F4] transition-all"
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[var(--c-bluecyan)] hover:bg-[var(--c-bluecyan-bg2)] transition-all"
                               >
                                 <Download className="w-3.5 h-3.5" />
                               </button>
@@ -2620,7 +3529,7 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                                 <button
                                   onClick={(e) => handleDeleteCustomAgent(preset.id, e)}
                                   title={t("删除", "Delete")}
-                                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[#CD7F6D] hover:bg-[#FAF0ED] transition-all"
+                                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[var(--c-cyan)] hover:bg-[var(--c-cyan-bg)] transition-all"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -2629,18 +3538,18 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
 
                             <div className={isBuiltin ? "pt-4" : ""}>
                               <div className="flex justify-between items-start gap-2">
-                                <span className="text-xs font-bold text-[#2C2A29] flex items-center gap-1.5 pr-14">
-                                  <Sparkles className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-[#C5A880] animate-pulse" : "text-[#BEBAAF] group-hover:text-[#967A55]"}`} />
+                                <span className="text-xs font-bold text-[var(--c-text)] flex items-center gap-1.5 pr-14">
+                                  <Sparkles className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-[var(--c-accent-lt)] animate-pulse" : "text-[var(--c-border2)] group-hover:text-[var(--c-accent)]"}`} />
                                   {getAgentName(preset)}
                                 </span>
                               </div>
-                              <p className="text-[10px] text-[#615D5A] mt-1.5 leading-relaxed line-clamp-2">
+                              <p className="text-[10px] text-[var(--c-secondary)] mt-1.5 leading-relaxed line-clamp-2">
                                 {getAgentDescription(preset)}
                               </p>
                             </div>
 
                             {isActive && (
-                              <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-[#7B9E7A] text-white text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shadow-xs">
+                              <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-[var(--c-accent)] text-white text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shadow-xs">
                                 {t("当前激活", "ACTIVE")}
                               </div>
                             )}
@@ -2654,11 +3563,11 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                                 animate={{ opacity: 1, height: "auto" }}
                                 exit={{ opacity: 0, height: 0 }}
                                 transition={{ duration: 0.25 }}
-                                className="overflow-hidden mt-2 bg-[#FAF8F5] border border-[#EAE3D9] rounded-xl p-3"
+                                className="overflow-hidden mt-2 bg-[var(--c-white)] border border-[var(--c-border)] rounded-xl p-3"
                               >
                                 <div className="flex items-center justify-between mb-2">
-                                  <span className="text-[10px] text-[#8E8A85] font-bold uppercase tracking-wider flex items-center gap-1">
-                                    <Edit3 className="w-3 h-3 text-[#967A55]" />
+                                  <span className="text-[10px] text-[var(--c-muted)] font-bold uppercase tracking-wider flex items-center gap-1">
+                                    <Edit3 className="w-3 h-3 text-[var(--c-accent)]" />
                                     {t("编辑人格 JSON", "Edit Personality JSON")}
                                   </span>
                                 </div>
@@ -2666,18 +3575,18 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                                   value={editingJson}
                                   onChange={(e) => setEditingJson(e.target.value)}
                                   rows={8}
-                                  className="w-full p-2.5 bg-[#FFFDFB] border border-[#EAE3D9] rounded-lg text-[10px] font-mono text-[#2C2A29] focus:outline-none focus:border-[#967A55] shadow-inner leading-normal resize-y"
+                                  className="w-full p-2.5 bg-[var(--c-white)] border border-[var(--c-border)] rounded-lg text-[10px] font-mono text-[var(--c-text)] focus:outline-none focus:border-[var(--c-accent)] shadow-inner leading-normal resize-y"
                                 />
                                 <div className="flex justify-end gap-2 mt-2.5">
                                   <button
                                     onClick={handleCancelEdit}
-                                    className="px-3 py-1.5 border border-[#EAE3D9] text-[#8E8A85] hover:text-[#615D5A] font-semibold text-[10px] rounded-lg transition-all active:scale-[0.97]"
+                                    className="px-3 py-1.5 border border-[var(--c-border)] text-[var(--c-muted)] hover:text-[var(--c-secondary)] font-semibold text-[10px] rounded-lg transition-all active:scale-[0.97]"
                                   >
                                     {t("取消", "Cancel")}
                                   </button>
                                   <button
                                     onClick={handleSaveEdit}
-                                    className="px-3.5 py-1.5 bg-[#967A55] hover:bg-[#836946] text-white font-bold text-[10px] rounded-lg transition-all shadow-sm active:scale-[0.97] flex items-center gap-1"
+                                    className="px-3.5 py-1.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-[10px] rounded-lg transition-all shadow-sm active:scale-[0.97] flex items-center gap-1"
                                   >
                                     <Check className="w-3 h-3" />
                                     {t("保存修改", "Save Changes")}
@@ -2692,9 +3601,9 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                   </div>
 
                   {customAgents.length === 0 && (
-                    <div className="mt-4 text-center py-6 bg-[#FAF8F5] rounded-xl border border-dashed border-[#EAE3D9]">
-                      <Info className="w-6 h-6 text-[#BEBAAF] mx-auto mb-2" />
-                      <p className="text-[10px] text-[#8E8A85] leading-relaxed">
+                    <div className="mt-4 text-center py-6 bg-[var(--c-white)] rounded-xl border border-dashed border-[var(--c-border)]">
+                      <Info className="w-6 h-6 text-[var(--c-border2)] mx-auto mb-2" />
+                      <p className="text-[10px] text-[var(--c-muted)] leading-relaxed">
                         {t(
                           "暂无自定义人格。前往「引擎看板」通过 JSON Sandbox 导入您自己的心理人格设定。",
                           "No custom personalities yet. Go to the Dashboard to import your own personality via the JSON Sandbox."
@@ -2705,23 +3614,144 @@ ${t("对话规则", "RULES OF CONVERSATION")}:
                 </div>
 
                 {/* Footer tip */}
-                <div className="px-5 py-3 border-t border-[#F4EFEA] bg-[#FDFBF9] flex items-center justify-between">
-                  <p className="text-[9px] text-[#BEBAAF] leading-relaxed">
+                <div className="px-4 py-2 border-t border-[var(--c-surface1)] bg-[var(--c-white)] flex items-center justify-between">
+                  <p className="text-[9px] text-[var(--c-border2)] leading-relaxed">
                     {t(
-                      "💡 点击卡片即可切换激活人格 · 悬停显示操作按钮 · ESC 关闭",
-                      "💡 Click a card to activate · Hover for actions · ESC to close"
+                      "💡 拖动标题栏移动 · 点击卡片切换 · ESC 关闭",
+                      "💡 Drag header to move · Click card to switch · ESC to close"
                     )}
                   </p>
                   <button
                     onClick={closeAgentList}
-                    className="px-4 py-1.5 bg-[#967A55] hover:bg-[#836946] text-white font-bold text-[10px] rounded-lg transition-all shadow-sm active:scale-[0.97]"
+                    className="px-3 py-1 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-[9px] rounded-md transition-all shadow-sm active:scale-[0.97]"
                   >
                     {t("完成", "Done")}
                   </button>
                 </div>
-              </motion.div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ========== FIRST-RUN TUTORIAL MODAL (3 steps, skippable) ========== */}
+      <AnimatePresence>
+        {tutorialStep !== null && (
+          <motion.div
+            className="fixed inset-0 z-[80] flex items-center justify-center p-5 bg-[var(--c-text)]/45 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={dismissTutorial}
+          >
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, scale: 0.94, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className="relative w-full max-w-sm bg-[var(--c-white)] rounded-3xl shadow-2xl shadow-black/25 border border-[var(--c-border)] overflow-hidden"
+            >
+              <button
+                onClick={dismissTutorial}
+                aria-label={t("关闭", "Close")}
+                className="absolute top-3 right-3 p-1.5 rounded-full text-[var(--c-border2)] hover:text-[var(--c-secondary)] hover:bg-[var(--c-surface7)] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="px-6 pt-7 pb-6 text-center">
+                <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--c-accent-lt)] via-[var(--c-accent-soft)] to-[var(--c-accent)] flex items-center justify-center shadow-md">
+                  {tutorialStep === 1 && <Sparkles className="w-7 h-7 text-white" />}
+                  {tutorialStep === 2 && <Send className="w-7 h-7 text-white" />}
+                  {tutorialStep === 3 && <Users className="w-7 h-7 text-white" />}
+                </div>
+
+                {tutorialStep === 1 && (
+                  <>
+                    <h2 className="text-lg font-bold font-display text-[var(--c-text)] tracking-wide">
+                      {t("欢迎来到 Your Mirror", "Welcome to Your Mirror")}
+                    </h2>
+                    <p className="mt-2 text-sm text-[var(--c-secondary)] leading-relaxed">
+                      {t(
+                        "这里住着一个会聊天的 AI 人格，它的心情、语气和想法会随着你们的对话慢慢变化，就像面对一个真实的人。",
+                        "A living AI personality lives here. Its mood, tone, and thoughts evolve as you talk — like talking to a real person."
+                      )}
+                    </p>
+                  </>
+                )}
+                {tutorialStep === 2 && (
+                  <>
+                    <h2 className="text-lg font-bold font-display text-[var(--c-text)] tracking-wide">
+                      {t("直接从下面开始聊", "Just start typing below")}
+                    </h2>
+                    <p className="mt-2 text-sm text-[var(--c-secondary)] leading-relaxed">
+                      {t(
+                        "在页面底部的输入框打字发送，就能和它对话了。它可能会心情好、也可能闹脾气——观察它的变化，就是最好玩的体验。",
+                        "Type in the box at the bottom and hit send. It may be cheerful or moody — watching it react is half the fun."
+                      )}
+                    </p>
+                  </>
+                )}
+                {tutorialStep === 3 && (
+                  <>
+                    <h2 className="text-lg font-bold font-display text-[var(--c-text)] tracking-wide">
+                      {t("换个性格再开始", "Swap to a different personality")}
+                    </h2>
+                    <p className="mt-2 text-sm text-[var(--c-secondary)] leading-relaxed">
+                      {t(
+                        "想让它是高敏感、自恋防御，还是别的风格？点底部导航里的「人格」，就能在智能体库里来回切换，或者导入你自己的设定。",
+                        "Prefer it highly sensitive, defensive, or something else? Tap the 'Personality' tab in the bottom nav to switch agents, or import your own."
+                      )}
+                    </p>
+                    <button
+                      onClick={() => { openAgentList(); dismissTutorial(); }}
+                      className="mt-4 w-full py-2.5 bg-gradient-to-r from-[var(--c-accent-lt)] to-[var(--c-accent)] hover:from-[var(--c-accent3)] hover:to-[var(--c-accent-st)] text-white font-bold text-xs rounded-xl active:scale-[0.98] transition-all shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      {t("去选个人格", "Pick a personality")}
+                    </button>
+                  </>
+                )}
+
+                <div className="mt-5 flex items-center justify-center gap-1.5">
+                  {[1, 2, 3].map((s) => (
+                    <span
+                      key={s}
+                      className={`h-1.5 rounded-full transition-all ${tutorialStep === s ? "w-5 bg-[var(--c-accent)]" : "w-1.5 bg-[var(--c-surface17)]"}`}
+                    />
+                  ))}
+                </div>
+
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <button
+                    onClick={dismissTutorial}
+                    className="text-[11px] font-semibold text-[var(--c-border2)] hover:text-[var(--c-secondary)] transition-colors"
+                  >
+                    {t("跳过教程", "Skip tutorial")}
+                  </button>
+                  {tutorialStep < 3 ? (
+                    <button
+                      onClick={() => setTutorialStep(tutorialStep + 1)}
+                      className="px-5 py-2.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-xs rounded-xl active:scale-[0.98] transition-all shadow-sm flex items-center gap-1.5"
+                    >
+                      {t("下一步", "Next")}
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={dismissTutorial}
+                      className="px-5 py-2.5 bg-[var(--c-accent)] hover:bg-[var(--c-accent-st)] text-white font-bold text-xs rounded-xl active:scale-[0.98] transition-all shadow-sm"
+                    >
+                      {t("开始使用", "Get started")}
+                    </button>
+                  )}
+                </div>
+              </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
 
