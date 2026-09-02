@@ -8,3 +8,265 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* ===== Gemini 主题变量（浅色 / 深色可切换） ===== */
+:root {
+  --c-white: #FFFFFF;
+  --c-border: #E8EDF3;
+  --c-muted: #80868B;
+  --c-secondary: #5F6368;
+  --c-text: #1F1F1F;
+  --c-surface1: #F2F7FD;
+  --c-accent-lt: #7BAFFB;
+  --c-cyan: #00ACC1;
+  --c-border2: #B0B6BD;
+  --c-surface2: #EFF4FA;
+  --c-surface3: #E9F0F8;
+  --c-accent-st: #1A73E8;
+  --c-bluecyan: #5FA8D3;
+  --c-accent-lt2: #6EA8F8;
+  --c-cyan-bg: #E6F7F9;
+  --c-cyan-bg2: #E0F4F7;
+  --c-accent-dp: #1967D2;
+  --c-accent-bg: #F0F6FE;
+  --c-purple: #8E7CC3;
+  --c-bluecyan2: #7FB2E5;
+  --c-accent-soft: #A8C7FA;
+  --c-surface4: #E4EEF8;
+  --c-muted2: #9AA0A6;
+  --c-surface5: #F6F9FC;
+  --c-surface6: #EDF4FD;
+  --c-surface7: #F8FAFD;
+  --c-purple-bg: #F3EFFC;
+  --c-purple-bg2: #EAE4F9;
+  --c-cyan-bg3: #EBF3F6;
+  --c-bluecyan-bg: #E3EEF4;
+  --c-surface8: #ECF2F8;
+  --c-purple2: #9C8FD0;
+  --c-surface9: #F5F9FE;
+  --c-accent3: #5B9CF6;
+  --c-bluecyan-dp: #3D7EA6;
+  --c-cyan-lt: #4DD0E1;
+  --c-purple-lt: #B3A5DE;
+  --c-bluecyan-lt: #85BEE0;
+  --c-border3: #B8BEC4;
+  --c-accent4: #8AB6F9;
+  --c-purple-lt2: #C4B8E2;
+  --c-purple-bg3: #F4F1FC;
+  --c-purple-bg4: #ECE6FA;
+  --c-bluecyan-lt3: #A8CFF0;
+  --c-surface10: #F4F8FD;
+  --c-surface11: #EAF2FC;
+  --c-surface12: #D8E4F6;
+  --c-surface13: #EBF1F7;
+  --c-cyan-dp: #00838F;
+  --c-purple-dp: #6C5BA8;
+  --c-accent5: #4D8DF5;
+  --c-surface14: #EFF5FD;
+  --c-surface15: #E8F1FC;
+  --c-surface16: #DCE8FA;
+  --c-text-st: #292929;
+  --c-bluecyan-bg2: #ECF2F5;
+  --c-surface17: #E6EBF2;
+  --c-anger-dp: #A65E4E;
+  --c-purple-bg5: #F7F2FA;
+  --c-purple-bg6: #F6F0FA;
+  --c-purple-bg7: #EFE5F5;
+  --c-pink: #DBA7B3;
+  --c-pink2: #C78F9B;
+  --c-pink-bg: #FBF1F3;
+  --c-pink-bg2: #F7E1E5;
+  --c-purple-dp2: #7A5E8C;
+  --c-accent: #4285F4;
+}
+.dark {
+  --c-white: #0E1117;
+  --c-border: #2A323D;
+  --c-muted: #9AA0A6;
+  --c-secondary: #BDC1C6;
+  --c-text: #E8EAED;
+  --c-surface1: #161D27;
+  --c-accent-lt: #AECBFA;
+  --c-cyan: #4DD0E1;
+  --c-border2: #3A434F;
+  --c-surface2: #1A222E;
+  --c-surface3: #1E2734;
+  --c-accent-st: #669DF6;
+  --c-bluecyan: #7FB8E5;
+  --c-accent-lt2: #AECBFA;
+  --c-cyan-bg: #0E2A2E;
+  --c-cyan-bg2: #0E2A2E;
+  --c-accent-dp: #4C8DF5;
+  --c-accent-bg: #14202E;
+  --c-purple: #B39DDB;
+  --c-bluecyan2: #9FCDEA;
+  --c-accent-soft: #C6D8FB;
+  --c-surface4: #18222E;
+  --c-muted2: #9AA0A6;
+  --c-surface5: #131820;
+  --c-surface6: #16202C;
+  --c-surface7: #131820;
+  --c-purple-bg: #1E1A2E;
+  --c-purple-bg2: #1E1A2E;
+  --c-cyan-bg3: #0E2A2E;
+  --c-bluecyan-bg: #0E2228;
+  --c-surface8: #16202B;
+  --c-purple2: #B39DDB;
+  --c-surface9: #141C26;
+  --c-accent3: #8AB4F8;
+  --c-bluecyan-dp: #5FA8D3;
+  --c-cyan-lt: #80DEEA;
+  --c-purple-lt: #C5B3E8;
+  --c-bluecyan-lt: #9FCDEA;
+  --c-border3: #3A434F;
+  --c-accent4: #AECBFA;
+  --c-purple-lt2: #C5B3E8;
+  --c-purple-bg3: #1E1A2E;
+  --c-purple-bg4: #1E1A2E;
+  --c-bluecyan-lt3: #BBDDF5;
+  --c-surface10: #141C26;
+  --c-surface11: #16222E;
+  --c-surface12: #18222E;
+  --c-surface13: #172027;
+  --c-cyan-dp: #26C6DA;
+  --c-purple-dp: #9575CD;
+  --c-accent5: #8AB4F8;
+  --c-surface14: #141C26;
+  --c-surface15: #14202C;
+  --c-surface16: #18222E;
+  --c-text-st: #F1F3F4;
+  --c-bluecyan-bg2: #0E2228;
+  --c-surface17: #18202A;
+  --c-anger-dp: #E07856;
+  --c-purple-bg5: #1E1A2E;
+  --c-purple-bg6: #1E1A2E;
+  --c-purple-bg7: #1E1A2E;
+  --c-pink: #E0A8B4;
+  --c-pink2: #D99AA6;
+  --c-pink-bg: #2A1A1E;
+  --c-pink-bg2: #2A1A1E;
+  --c-purple-dp2: #9575CD;
+  --c-accent: #8AB4F8;
+}
+
+body {
+  background-color: var(--c-white);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+/* 柔和滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-border2); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--c-muted2); }
+
+/* ===== Gemini 风格动效 ===== */
+@keyframes gemini-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gemini-fade-in-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes gemini-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes gemini-pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-accent) 50%, transparent); }
+  70% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-accent) 0%, transparent); }
+}
+@keyframes gemini-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* 通用过渡：所有使用 var(--c-*) 的属性都平滑切换（仅作用于常见元素，避免影响 SVG 内部 / motion lib） */
+button, a, input, textarea, select, div, span, p, h1, h2, h3, h4, h5, h6, li, section, header, main, aside, nav, article, label {
+  transition-property: background-color, border-color, color, box-shadow, transform;
+  transition-duration: 0.25s;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 入场动画工具类 */
+.gemini-fade-in { animation: gemini-fade-in 0.4s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.gemini-fade-in-scale { animation: gemini-fade-in-scale 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+/* 卡片悬停上浮 + 蓝色辉光 */
+.gemini-card {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.gemini-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--c-accent) 22%, transparent),
+              0 2px 6px -2px rgba(0, 0, 0, 0.06);
+  border-color: color-mix(in srgb, var(--c-accent) 35%, var(--c-border));
+}
+
+/* 按钮微动效：hover 轻微放大 + 蓝色辉光；active 回弹 */
+.gemini-btn {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.gemini-btn:hover {
+  transform: translateY(-1px);
+}
+.gemini-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Gemini 渐变背景：浅色白蓝渐变，深色深邃蓝黑渐变 */
+.gemini-gradient-bg {
+  background: linear-gradient(
+    135deg,
+    var(--c-white) 0%,
+    var(--c-accent-bg) 50%,
+    var(--c-white) 100%
+  );
+  background-size: 200% 200%;
+  animation: gemini-gradient-shift 12s ease-in-out infinite;
+}
+.dark .gemini-gradient-bg {
+  background: linear-gradient(
+    135deg,
+    var(--c-white) 0%,
+    var(--c-accent-bg) 50%,
+    var(--c-surface1) 100%
+  );
+  background-size: 200% 200%;
+}
+
+/* 加载态骨架屏 */
+.gemini-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--c-surface1) 0%,
+    var(--c-surface3) 50%,
+    var(--c-surface1) 100%
+  );
+  background-size: 200% 100%;
+  animation: gemini-shimmer 1.6s linear infinite;
+}
+
+/* Focus ring：蓝色柔和光晕 */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 30%, transparent);
+  border-radius: 6px;
+}
+
+/* 强调按钮脉冲（用于引导用户操作的"主行动"按钮） */
+.gemini-pulse {
+  animation: gemini-pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 减弱动效：尊重系统偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

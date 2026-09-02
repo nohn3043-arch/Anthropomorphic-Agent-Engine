@@ -5,10 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>SPL Psychological Fluid Engine Dashboard</title>
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#967A55" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#4285F4" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="SPL Core" />
+    <meta name="apple-mobile-web-app-title" content="Your Mirror" />
+    <!-- 防闪白：在 React 挂载前根据已保存偏好为 <html> 加/去 .dark 类 -->
+    <script>
+      (function () {
+        try {
+          var d = localStorage.getItem("spl_dark_mode");
+          if (d === "1") document.documentElement.classList.add("dark");
+          else if (d === "0") document.documentElement.classList.remove("dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

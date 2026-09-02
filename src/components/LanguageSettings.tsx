@@ -120,10 +120,9 @@ export function LanguageSettings({ value, onChange }: Props) {
         onClick={doOpen}
         aria-label={t("语言设置", "Language settings")}
         aria-haspopup="dialog"
-        className="flex items-center gap-2 rounded-full border border-[#E5E0DA] bg-white/70 px-3 py-1.5 text-sm text-[#3A3633] shadow-sm backdrop-blur transition hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C98A5E]"
+        className="flex items-center justify-center w-11 h-11 rounded-xl border border-[var(--c-border)] bg-[var(--c-white)]/95 text-[var(--c-muted)] shadow-sm backdrop-blur-md transition-all hover:scale-105 hover:text-[var(--c-accent)] hover:border-[var(--c-accent)]/40 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
       >
-        <Globe size={16} />
-        <span className="font-medium">{active.shortLabel}</span>
+        <Globe className="w-5 h-5" />
       </button>
 
       {createPortal(
@@ -146,17 +145,17 @@ export function LanguageSettings({ value, onChange }: Props) {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ type: "spring", damping: 28, stiffness: 320 }}
-              className="flex max-h-[85vh] w-[92vw] max-w-md flex-col overflow-hidden rounded-2xl bg-[#FBF7F2] shadow-2xl"
+              className="flex max-h-[85vh] w-[92vw] max-w-md flex-col overflow-hidden rounded-2xl bg-[var(--c-white)] shadow-2xl border border-[var(--c-border)]"
             >
               {/* 抓手条：已移除，弹窗统一为居中卡片 */}
 
               {/* 头部 */}
               <div className="flex items-start justify-between px-5 pb-3 pt-1 sm:pt-5">
                 <div className="pr-3">
-                  <h2 className="text-lg font-semibold text-[#3A3633]">
+                  <h2 className="text-lg font-semibold text-[var(--c-text)]">
                     {t("语言设置", "Language settings")}
                   </h2>
-                  <p className="mt-0.5 text-xs text-[#8A837B]">
+                  <p className="mt-0.5 text-xs text-[var(--c-muted)]">
                     {t("选择应用界面使用的语言。", "Choose the language used by the app interface.")}
                   </p>
                 </div>
@@ -164,7 +163,7 @@ export function LanguageSettings({ value, onChange }: Props) {
                   type="button"
                   onClick={() => doClose()}
                   aria-label={t("关闭", "Close")}
-                  className="rounded-full p-2 text-[#8A837B] transition hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C98A5E]"
+                  className="rounded-full p-2 text-[var(--c-muted)] transition hover:bg-[var(--c-surface2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
                 >
                   <X size={20} />
                 </button>
@@ -172,8 +171,8 @@ export function LanguageSettings({ value, onChange }: Props) {
 
               {/* 搜索框 */}
               <div className="px-5 pb-3">
-                <div className="flex items-center gap-2 rounded-xl border border-[#E5E0DA] bg-white px-3 py-2">
-                  <Search size={16} className="shrink-0 text-[#8A837B]" />
+                <div className="flex items-center gap-2 rounded-xl border border-[var(--c-border)] bg-[var(--c-white)] px-3 py-2">
+                  <Search size={16} className="shrink-0 text-[var(--c-muted)]" />
                   <input
                     ref={searchRef}
                     type="text"
@@ -184,7 +183,7 @@ export function LanguageSettings({ value, onChange }: Props) {
                     }}
                     placeholder={t("搜索语言...", "Search language...")}
                     aria-label={t("搜索语言...", "Search language...")}
-                    className="w-full bg-transparent text-sm text-[#3A3633] outline-none placeholder:text-[#A89F95]"
+                    className="w-full bg-transparent text-sm text-[var(--c-text)] outline-none placeholder:text-[var(--c-border2)]"
                   />
                   {query && (
                     <button
@@ -194,7 +193,7 @@ export function LanguageSettings({ value, onChange }: Props) {
                         searchRef.current?.focus();
                       }}
                       aria-label={t("清除搜索", "Clear search")}
-                      className="shrink-0 text-[#8A837B] transition hover:text-[#3A3633]"
+                      className="shrink-0 text-[var(--c-muted)] transition hover:text-[var(--c-text)]"
                     >
                       <X size={16} />
                     </button>
@@ -209,7 +208,7 @@ export function LanguageSettings({ value, onChange }: Props) {
                 className="min-h-0 flex-1 overflow-y-auto px-3 pb-2"
               >
                 {filtered.length === 0 ? (
-                  <div className="py-10 text-center text-sm text-[#8A837B]">
+                  <div className="py-10 text-center text-sm text-[var(--c-muted)]">
                     {t("没有相符的语言", "No matching languages")}
                   </div>
                 ) : (
@@ -231,8 +230,8 @@ export function LanguageSettings({ value, onChange }: Props) {
                           optionRefs.current[i]?.focus();
                         }}
                         onFocus={() => setFocusIndex(i)}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C98A5E] ${
-                          isPending ? "bg-[#EFE7DC]" : "hover:bg-black/5"
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] ${
+                          isPending ? "bg-[var(--c-accent-bg)]" : "hover:bg-[var(--c-surface2)]"
                         }`}
                       >
                         <span
@@ -242,12 +241,12 @@ export function LanguageSettings({ value, onChange }: Props) {
                           {o.shortLabel}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-[#3A3633]">
+                          <span className="block truncate text-sm font-medium text-[var(--c-text)]">
                             {o.nativeLabel}
                           </span>
-                          <span className="block truncate text-xs text-[#8A837B]">{o.label}</span>
+                          <span className="block truncate text-xs text-[var(--c-muted)]">{o.label}</span>
                         </span>
-                        {selected && <Check size={18} className="shrink-0 text-[#C98A5E]" />}
+                        {selected && <Check size={18} className="shrink-0 text-[var(--c-accent)]" />}
                       </button>
                     );
                   })
@@ -255,18 +254,18 @@ export function LanguageSettings({ value, onChange }: Props) {
               </div>
 
               {/* 底部：取消 / 确认 */}
-              <div className="flex gap-3 border-t border-[#E5E0DA] px-5 py-4">
+              <div className="flex gap-3 border-t border-[var(--c-border)] px-5 py-4">
                 <button
                   type="button"
                   onClick={() => doClose()}
-                  className="flex-1 rounded-xl border border-[#D9D2C9] px-4 py-3 text-sm font-medium text-[#3A3633] transition hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C98A5E]"
+                  className="flex-1 rounded-xl border border-[var(--c-border)] px-4 py-3 text-sm font-medium text-[var(--c-text)] transition hover:bg-[var(--c-surface2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
                 >
                   {t("取消", "Cancel")}
                 </button>
                 <button
                   type="button"
                   onClick={apply}
-                  className="flex-1 rounded-xl bg-[#C98A5E] px-4 py-3 text-sm font-semibold text-white transition hover:brightness-105 active:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A86A3E] focus-visible:ring-offset-2"
+                  className="flex-1 rounded-xl bg-[var(--c-accent)] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[var(--c-accent-st)] active:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent-dp)] focus-visible:ring-offset-2"
                 >
                   {t("确认", "Confirm")}
                 </button>
