@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spl-agent-engine"
+version = "0.2.0"
+description = "Anthropomorphic psychology engine built on SPL Pure Core V8.0 — deterministic emotion, trauma, memory, trust, and defense mechanisms."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [
+  { name = "NOHN-AI", email = "ai@nohnlins.com" },
+]
+maintainers = [
+  { name = "NOHN-AI", email = "ai@nohnlins.com" },
+]
+keywords = ["spl", "agent", "anthropomorphic", "psychology", "emotion", "ai-agent", "personality", "narrative", "deterministic", "trauma"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "License :: Other/Proprietary License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://www.nohnlins.com/"
+Repository = "https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine"
+"Bug Tracker" = "https://github.com/NOHN-AI/Anthropomorphic-Agent-Engine/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "build>=1.0",
+  "twine>=4.0",
+]
+
+[tool.setuptools]
+packages = ["spl_agent_engine", "spl_agent_engine.feature"]
+
+[tool.setuptools.package-data]
+spl_agent_engine = ["py.typed"]

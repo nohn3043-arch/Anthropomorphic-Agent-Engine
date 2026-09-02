@@ -43,7 +43,7 @@ python "SPL-anthropic-engine.py"   # 运行引擎 / 内置演示
 引擎也已发布到 PyPI，包名 [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/)：
 
 ```bash
-pip install spl-agent-engine==0.1.0
+pip install spl-agent-engine==0.2.0
 ```
 
 ```python
