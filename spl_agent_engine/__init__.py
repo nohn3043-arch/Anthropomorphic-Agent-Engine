@@ -19,10 +19,25 @@ Usage:
     print(core.fluid)
 """
 
-from .core import AuditLogger, SPLPureCoreV7_3, NarrativeMapper
+from .core import (
+    AuditLogger,
+    SPLPureCoreV7_3,
+    NarrativeMapper,
+    TokenUsage,
+    LLMAdapter,
+    OpenAIAdapter,
+    ClaudeAdapter,
+    ChainAdapter,
+    generate_line_with_llm,
+)
 
 # Canonical name for V8.0 (class name kept for backward compatibility)
 SPLPureCore = SPLPureCoreV7_3
 
-__version__ = "0.2.0"
-__all__ = ["SPLPureCore", "SPLPureCoreV7_3", "NarrativeMapper", "AuditLogger"]
+__version__ = "0.3.0"
+__all__ = [
+    "SPLPureCore", "SPLPureCoreV7_3", "NarrativeMapper", "AuditLogger",
+    "TokenUsage",
+    "LLMAdapter", "OpenAIAdapter", "ClaudeAdapter", "ChainAdapter",
+    "generate_line_with_llm",
+]

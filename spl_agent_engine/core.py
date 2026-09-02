@@ -4,7 +4,7 @@ import json
 import os
 import datetime
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 
 # ================================================================
@@ -75,8 +75,52 @@ class AuditLogger:
                 "memory_count", "expected_count")
         return {k: snap.get(k) for k in keys if k in snap}
 
+    def log_llm_call(self, model: str, prompt_preview: str,
+                     usage: Optional["TokenUsage"] = None,
+                     duration_ms: float = 0.0,
+                     success: bool = True,
+                     error: str = "") -> None:
+        """记录一次 LLM 调用（token 用量、耗时、成功/失败）。
+
+        写入失败静默跳过，绝不阻断引擎核心。
+        """
+        if not self.enabled:
+            return
+        try:
+            entry = {
+                "seq": self._entry_count,
+                "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                "engine": self.ENGINE_VERSION,
+                "session": self.session_id,
+                "event": "llm_call",
+                "model": model,
+                "prompt_preview": prompt_preview[:200],
+                "success": success,
+                "duration_ms": round(duration_ms, 2),
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens if usage else 0,
+                    "completion_tokens": usage.completion_tokens if usage else 0,
+                    "total_tokens": usage.total_tokens if usage else 0,
+                } if usage else None,
+                "error": error or None,
+            }
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            self._entry_count += 1
+        except Exception:
+            pass
+
     def export_path(self) -> Optional[str]:
         return self.log_file if os.path.exists(self.log_file) else None
+
+
+@dataclass
+class TokenUsage:
+    """LLM 调用 token 用量统计。"""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
 
 
 # ================================================================
@@ -1309,7 +1353,9 @@ class LLMAdapter(ABC):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional["TokenUsage"]]]:
         """
         根据 prompt_injection 生成台词。
 
@@ -1319,9 +1365,11 @@ class LLMAdapter(ABC):
             system_prompt: 可选系统提示词，覆盖默认
             temperature: 采样温度
             max_tokens: 最大生成 token 数
+            return_usage: True 时返回 (台词, TokenUsage) 元组
 
         Returns:
-            生成的台词字符串，失败返回 None
+            return_usage=False: 生成的台词字符串，失败返回 None
+            return_usage=True:  (台词, TokenUsage) 元组
         """
         ...
 
@@ -1350,7 +1398,9 @@ class OpenAIAdapter(LLMAdapter):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
         import urllib.request
         import urllib.error
 
@@ -1383,8 +1433,22 @@ class OpenAIAdapter(LLMAdapter):
                 body = json.loads(resp.read().decode("utf-8"))
                 choice = body.get("choices", [{}])[0]
                 content = choice.get("message", {}).get("content", "")
-                return content.strip() if content else None
+                result = content.strip() if content else None
+
+                usage_data = body.get("usage", {}) or {}
+                usage = TokenUsage(
+                    prompt_tokens=usage_data.get("prompt_tokens", 0),
+                    completion_tokens=usage_data.get("completion_tokens", 0),
+                    total_tokens=usage_data.get("total_tokens", 0),
+                    model=body.get("model", self.model),
+                ) if usage_data else None
+
+                if return_usage:
+                    return result, usage
+                return result
         except (urllib.error.URLError, json.JSONDecodeError, KeyError) as e:
+            if return_usage:
+                return None, None
             return None
 
 
@@ -1412,7 +1476,9 @@ class ClaudeAdapter(LLMAdapter):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
         import urllib.request
         import urllib.error
 
@@ -1445,8 +1511,24 @@ class ClaudeAdapter(LLMAdapter):
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 content = body.get("content", [{}])[0].get("text", "")
-                return content.strip() if content else None
+                result = content.strip() if content else None
+
+                usage_data = body.get("usage", {}) or {}
+                prompt_tok = usage_data.get("input_tokens", 0)
+                completion_tok = usage_data.get("output_tokens", 0)
+                usage = TokenUsage(
+                    prompt_tokens=prompt_tok,
+                    completion_tokens=completion_tok,
+                    total_tokens=prompt_tok + completion_tok,
+                    model=body.get("model", self.model),
+                ) if usage_data else None
+
+                if return_usage:
+                    return result, usage
+                return result
         except (urllib.error.URLError, json.JSONDecodeError, KeyError) as e:
+            if return_usage:
+                return None, None
             return None
 
 
@@ -1472,24 +1554,45 @@ class ChainAdapter(LLMAdapter):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
-        result = self.primary.generate(
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
+        result, usage = self.primary.generate(
             prompt_injection=prompt_injection,
             style_example=style_example,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            return_usage=True,
         )
         if result is not None:
+            if return_usage:
+                return result, usage
             return result
         if self.fallback is not None:
-            return self.fallback.generate(
+            result2, usage2 = self.fallback.generate(
                 prompt_injection=prompt_injection,
                 style_example=style_example,
                 system_prompt=system_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                return_usage=True,
             )
+            if return_usage:
+                # 合并两次调用的 token 用量
+                if usage and usage2:
+                    merged = TokenUsage(
+                        prompt_tokens=usage.prompt_tokens + usage2.prompt_tokens,
+                        completion_tokens=usage.completion_tokens + usage2.completion_tokens,
+                        total_tokens=usage.total_tokens + usage2.total_tokens,
+                        model=f"{usage.model}->{usage2.model}",
+                    )
+                else:
+                    merged = usage2 or usage
+                return result2, merged
+            return result2
+        if return_usage:
+            return None, usage
         return None
 
 
@@ -1501,6 +1604,7 @@ def generate_line_with_llm(
     core_snapshot: dict,
     expression,
     adapter: LLMAdapter,
+    audit_logger: Optional["AuditLogger"] = None,
 ) -> str:
     """
     便利函数：引擎渲染风格 → LLM 生成台词 → 失败回退到确定性生成。
@@ -1510,18 +1614,38 @@ def generate_line_with_llm(
         core_snapshot: SPL 核心快照（含 fluid/mood/self_esteem 等）
         expression: 表达意图对象（含 expression_mode / emotion_hidden / silence 等）
         adapter: LLMAdapter 实例
+        audit_logger: 可选 AuditLogger，传入则记录 LLM 调用与 token 用量
 
     Returns:
         台词字符串（LLM 成功=LLM 产出，失败=引擎确定性产出）
     """
+    import time as _time
+
     rendered = engine.render_style(core_snapshot, expression)
     if rendered.silence_hint:
         return rendered.silence_hint
 
-    line = adapter.generate(
+    t0 = _time.perf_counter()
+    line, usage = adapter.generate(
         prompt_injection=rendered.prompt_injection,
         style_example=rendered.style_example,
+        return_usage=True,
     )
+    duration_ms = (_time.perf_counter() - t0) * 1000
+
+    if audit_logger is not None:
+        model = getattr(adapter, "model", "") or (
+            usage.model if usage else ""
+        )
+        audit_logger.log_llm_call(
+            model=model,
+            prompt_preview=rendered.prompt_injection,
+            usage=usage,
+            duration_ms=duration_ms,
+            success=line is not None,
+            error="" if line is not None else "llm_failed",
+        )
+
     if line is not None:
         return line
 
