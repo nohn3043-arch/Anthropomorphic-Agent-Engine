@@ -4,7 +4,7 @@ import json
 import os
 import datetime
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 
 # ================================================================
@@ -75,8 +75,160 @@ class AuditLogger:
                 "memory_count", "expected_count")
         return {k: snap.get(k) for k in keys if k in snap}
 
+    def log_llm_call(self, model: str, prompt_preview: str,
+                     usage: Optional["TokenUsage"] = None,
+                     duration_ms: float = 0.0,
+                     success: bool = True,
+                     error: str = "") -> None:
+        """记录一次 LLM 调用（token 用量、耗时、成功/失败）。
+
+        写入失败静默跳过，绝不阻断引擎核心。
+        """
+        if not self.enabled:
+            return
+        try:
+            entry = {
+                "seq": self._entry_count,
+                "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                "engine": self.ENGINE_VERSION,
+                "session": self.session_id,
+                "event": "llm_call",
+                "model": model,
+                "prompt_preview": prompt_preview[:200],
+                "success": success,
+                "duration_ms": round(duration_ms, 2),
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens if usage else 0,
+                    "completion_tokens": usage.completion_tokens if usage else 0,
+                    "total_tokens": usage.total_tokens if usage else 0,
+                } if usage else None,
+                "error": error or None,
+            }
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            self._entry_count += 1
+        except Exception:
+            pass
+
     def export_path(self) -> Optional[str]:
         return self.log_file if os.path.exists(self.log_file) else None
+
+
+@dataclass
+class TokenUsage:
+    """LLM 调用 token 用量统计。"""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+
+
+# ================================================================
+# Token 累计统计器 — 跨调用汇总 token 用量
+# ================================================================
+class TokenStats:
+    """跨多次 LLM 调用累计统计 token 用量。
+
+    功能：
+      - 累计 prompt / completion / total tokens
+      - 按模型分别统计
+      - 记录每次调用明细
+      - 导出 JSON 汇总报告
+
+    用法：
+        stats = TokenStats()
+        stats.record(usage)                # 传入 TokenUsage
+        stats.record(usage2)
+        stats.summary()                    # 汇总 dict
+        stats.export_json("stats.json")    # 导出文件
+    """
+
+    def __init__(self):
+        self._total_prompt: int = 0
+        self._total_completion: int = 0
+        self._total_tokens: int = 0
+        self._call_count: int = 0
+        self._by_model: Dict[str, Dict[str, int]] = {}
+        self._history: List[Dict[str, Any]] = []
+
+    def record(self, usage: TokenUsage) -> None:
+        """记录一次 LLM 调用的 token 用量。"""
+        if usage is None:
+            return
+        self._total_prompt += usage.prompt_tokens
+        self._total_completion += usage.completion_tokens
+        self._total_tokens += usage.total_tokens
+        self._call_count += 1
+
+        model = usage.model or "unknown"
+        if model not in self._by_model:
+            self._by_model[model] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "call_count": 0,
+            }
+        m = self._by_model[model]
+        m["prompt_tokens"] += usage.prompt_tokens
+        m["completion_tokens"] += usage.completion_tokens
+        m["total_tokens"] += usage.total_tokens
+        m["call_count"] += 1
+
+        self._history.append({
+            "seq": self._call_count,
+            "model": model,
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens,
+        })
+
+    def summary(self) -> Dict[str, Any]:
+        """返回累计统计汇总。"""
+        return {
+            "call_count": self._call_count,
+            "total_prompt_tokens": self._total_prompt,
+            "total_completion_tokens": self._total_completion,
+            "total_tokens": self._total_tokens,
+            "by_model": dict(self._by_model),
+        }
+
+    def history(self) -> List[Dict[str, Any]]:
+        """返回每次调用的明细记录。"""
+        return list(self._history)
+
+    def reset(self) -> None:
+        """清空所有统计。"""
+        self._total_prompt = 0
+        self._total_completion = 0
+        self._total_tokens = 0
+        self._call_count = 0
+        self._by_model.clear()
+        self._history.clear()
+
+    def export_json(self, path: str) -> None:
+        """将统计汇总 + 明细导出为 JSON 文件。"""
+        data = {
+            "summary": self.summary(),
+            "history": self.history(),
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    @property
+    def total_tokens(self) -> int:
+        return self._total_tokens
+
+    @property
+    def total_prompt_tokens(self) -> int:
+        return self._total_prompt
+
+    @property
+    def total_completion_tokens(self) -> int:
+        return self._total_completion
+
+    @property
+    def call_count(self) -> int:
+        return self._call_count
 
 
 # ================================================================
@@ -281,11 +433,40 @@ class SPLPureCoreV7_3:  # 类名保持兼容
     audit_session_id: Optional[str] = None
     audit_logger: Optional[AuditLogger] = field(default=None, repr=False)
 
+    # ---------- LLM Token 用量累计（内置计量） ----------
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_tokens: int = 0
+    llm_call_count: int = 0
+    llm_failed_count: int = 0
+
     def __post_init__(self):
         if self.audit_logger is None and self.audit_enabled:
             self.audit_logger = AuditLogger(
                 log_dir=self.audit_log_dir,
                 session_id=self.audit_session_id,
+            )
+
+    def record_llm_usage(self, usage: Optional[TokenUsage], success: bool = True) -> None:
+        """记录一次 LLM 调用的 token 用量，自动累加并写入审计日志。"""
+        self.llm_call_count += 1
+        if not success:
+            self.llm_failed_count += 1
+        if usage is not None:
+            self.total_prompt_tokens += usage.prompt_tokens
+            self.total_completion_tokens += usage.completion_tokens
+            self.total_tokens += usage.total_tokens
+        if self.audit_logger is not None:
+            self.audit_logger.log(
+                "llm_usage_recorded",
+                {"success": success},
+                self.snapshot(),
+                usage={
+                    "prompt_tokens": usage.prompt_tokens if usage else 0,
+                    "completion_tokens": usage.completion_tokens if usage else 0,
+                    "total_tokens": usage.total_tokens if usage else 0,
+                    "model": usage.model if usage else "",
+                } if usage else None,
             )
 
     # ==================================================================
@@ -534,6 +715,11 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             "memory_count": len(self.memory_traces),
             "expected_count": len(self.expected_events),
             "last_perceived": dict(self.last_perceived),
+            "llm_call_count": self.llm_call_count,
+            "llm_failed_count": self.llm_failed_count,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_tokens": self.total_tokens,
         }
 
     # ==================================================================
@@ -1309,7 +1495,9 @@ class LLMAdapter(ABC):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
         """
         根据 prompt_injection 生成台词。
 
@@ -1319,9 +1507,11 @@ class LLMAdapter(ABC):
             system_prompt: 可选系统提示词，覆盖默认
             temperature: 采样温度
             max_tokens: 最大生成 token 数
+            return_usage: True 时返回 (台词, TokenUsage) 元组
 
         Returns:
-            生成的台词字符串，失败返回 None
+            return_usage=False: 生成的台词字符串，失败返回 None
+            return_usage=True:  (台词, TokenUsage) 元组
         """
         ...
 
@@ -1350,7 +1540,9 @@ class OpenAIAdapter(LLMAdapter):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
         import urllib.request
         import urllib.error
 
@@ -1383,8 +1575,22 @@ class OpenAIAdapter(LLMAdapter):
                 body = json.loads(resp.read().decode("utf-8"))
                 choice = body.get("choices", [{}])[0]
                 content = choice.get("message", {}).get("content", "")
-                return content.strip() if content else None
+                result = content.strip() if content else None
+
+                usage_data = body.get("usage", {}) or {}
+                usage = TokenUsage(
+                    prompt_tokens=usage_data.get("prompt_tokens", 0),
+                    completion_tokens=usage_data.get("completion_tokens", 0),
+                    total_tokens=usage_data.get("total_tokens", 0),
+                    model=body.get("model", self.model),
+                ) if usage_data else None
+
+                if return_usage:
+                    return result, usage
+                return result
         except (urllib.error.URLError, json.JSONDecodeError, KeyError) as e:
+            if return_usage:
+                return None, None
             return None
 
 
@@ -1412,7 +1618,9 @@ class ClaudeAdapter(LLMAdapter):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
         import urllib.request
         import urllib.error
 
@@ -1445,8 +1653,24 @@ class ClaudeAdapter(LLMAdapter):
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 content = body.get("content", [{}])[0].get("text", "")
-                return content.strip() if content else None
+                result = content.strip() if content else None
+
+                usage_data = body.get("usage", {}) or {}
+                prompt_tok = usage_data.get("input_tokens", 0)
+                completion_tok = usage_data.get("output_tokens", 0)
+                usage = TokenUsage(
+                    prompt_tokens=prompt_tok,
+                    completion_tokens=completion_tok,
+                    total_tokens=prompt_tok + completion_tok,
+                    model=body.get("model", self.model),
+                ) if usage_data else None
+
+                if return_usage:
+                    return result, usage
+                return result
         except (urllib.error.URLError, json.JSONDecodeError, KeyError) as e:
+            if return_usage:
+                return None, None
             return None
 
 
@@ -1472,24 +1696,45 @@ class ChainAdapter(LLMAdapter):
                  style_example: str = "",
                  system_prompt: str = "",
                  temperature: float = 0.7,
-                 max_tokens: int = 500) -> Optional[str]:
-        result = self.primary.generate(
+                 max_tokens: int = 500,
+                 return_usage: bool = False
+                 ) -> Union[Optional[str], Tuple[Optional[str], Optional[TokenUsage]]]:
+        result, usage = self.primary.generate(
             prompt_injection=prompt_injection,
             style_example=style_example,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            return_usage=True,
         )
         if result is not None:
+            if return_usage:
+                return result, usage
             return result
         if self.fallback is not None:
-            return self.fallback.generate(
+            result2, usage2 = self.fallback.generate(
                 prompt_injection=prompt_injection,
                 style_example=style_example,
                 system_prompt=system_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                return_usage=True,
             )
+            if return_usage:
+                # 合并两次调用的 token 用量
+                if usage and usage2:
+                    merged = TokenUsage(
+                        prompt_tokens=usage.prompt_tokens + usage2.prompt_tokens,
+                        completion_tokens=usage.completion_tokens + usage2.completion_tokens,
+                        total_tokens=usage.total_tokens + usage2.total_tokens,
+                        model=f"{usage.model}->{usage2.model}",
+                    )
+                else:
+                    merged = usage2 or usage
+                return result2, merged
+            return result2
+        if return_usage:
+            return None, usage
         return None
 
 
@@ -1501,6 +1746,7 @@ def generate_line_with_llm(
     core_snapshot: dict,
     expression,
     adapter: LLMAdapter,
+    core: Optional["SPLPureCoreV7_3"] = None,
 ) -> str:
     """
     便利函数：引擎渲染风格 → LLM 生成台词 → 失败回退到确定性生成。
@@ -1510,18 +1756,39 @@ def generate_line_with_llm(
         core_snapshot: SPL 核心快照（含 fluid/mood/self_esteem 等）
         expression: 表达意图对象（含 expression_mode / emotion_hidden / silence 等）
         adapter: LLMAdapter 实例
+        core: 可选 SPLPureCoreV7_3 实例，传入则自动记录 token 用量到主引擎
 
     Returns:
         台词字符串（LLM 成功=LLM 产出，失败=引擎确定性产出）
     """
+    import time as _time
+
     rendered = engine.render_style(core_snapshot, expression)
     if rendered.silence_hint:
         return rendered.silence_hint
 
-    line = adapter.generate(
+    t0 = _time.perf_counter()
+    line, usage = adapter.generate(
         prompt_injection=rendered.prompt_injection,
         style_example=rendered.style_example,
+        return_usage=True,
     )
+    duration_ms = (_time.perf_counter() - t0) * 1000
+
+    success = line is not None
+    if core is not None:
+        core.record_llm_usage(usage, success=success)
+        if core.audit_logger is not None:
+            model = getattr(adapter, "model", "") or (usage.model if usage else "")
+            core.audit_logger.log_llm_call(
+                model=model,
+                prompt_preview=rendered.prompt_injection,
+                usage=usage,
+                duration_ms=duration_ms,
+                success=success,
+                error="" if success else "llm_failed",
+            )
+
     if line is not None:
         return line
 

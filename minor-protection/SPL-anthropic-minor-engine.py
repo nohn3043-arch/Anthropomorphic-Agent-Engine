@@ -77,6 +77,152 @@ class AuditLogger:
     def export_path(self) -> Optional[str]:
         return self.log_file if os.path.exists(self.log_file) else None
 
+    def log_llm_call(self, model: str, prompt_preview: str,
+                     usage: Optional["TokenUsage"] = None,
+                     duration_ms: float = 0.0,
+                     success: bool = True,
+                     error: str = "") -> None:
+        """记录一次 LLM 调用（token 用量、耗时、成功/失败）。
+
+        写入失败静默跳过，绝不阻断引擎核心。
+        """
+        if not self.enabled:
+            return
+        try:
+            entry = {
+                "seq": self._entry_count,
+                "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                "engine": self.ENGINE_VERSION,
+                "session": self.session_id,
+                "event": "llm_call",
+                "model": model,
+                "prompt_preview": prompt_preview[:200],
+                "success": success,
+                "duration_ms": round(duration_ms, 2),
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens if usage else 0,
+                    "completion_tokens": usage.completion_tokens if usage else 0,
+                    "total_tokens": usage.total_tokens if usage else 0,
+                } if usage else None,
+                "error": error or None,
+            }
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            self._entry_count += 1
+        except Exception:
+            pass
+
+
+# ================================================================
+# Token 用量数据类 + 累计统计器
+# ================================================================
+@dataclass
+class TokenUsage:
+    """LLM 调用 token 用量统计。"""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+
+
+class TokenStats:
+    """跨多次 LLM 调用累计统计 token 用量。
+
+    功能：
+      - 累计 prompt / completion / total tokens
+      - 按模型分别统计
+      - 记录每次调用明细
+      - 导出 JSON 汇总报告
+
+    用法：
+        stats = TokenStats()
+        stats.record(usage)
+        stats.summary()
+        stats.export_json("stats.json")
+    """
+
+    def __init__(self):
+        self._total_prompt: int = 0
+        self._total_completion: int = 0
+        self._total_tokens: int = 0
+        self._call_count: int = 0
+        self._by_model: Dict[str, Dict[str, int]] = {}
+        self._history: List[Dict[str, Any]] = []
+
+    def record(self, usage: TokenUsage) -> None:
+        if usage is None:
+            return
+        self._total_prompt += usage.prompt_tokens
+        self._total_completion += usage.completion_tokens
+        self._total_tokens += usage.total_tokens
+        self._call_count += 1
+
+        model = usage.model or "unknown"
+        if model not in self._by_model:
+            self._by_model[model] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "call_count": 0,
+            }
+        m = self._by_model[model]
+        m["prompt_tokens"] += usage.prompt_tokens
+        m["completion_tokens"] += usage.completion_tokens
+        m["total_tokens"] += usage.total_tokens
+        m["call_count"] += 1
+
+        self._history.append({
+            "seq": self._call_count,
+            "model": model,
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens,
+        })
+
+    def summary(self) -> Dict[str, Any]:
+        return {
+            "call_count": self._call_count,
+            "total_prompt_tokens": self._total_prompt,
+            "total_completion_tokens": self._total_completion,
+            "total_tokens": self._total_tokens,
+            "by_model": dict(self._by_model),
+        }
+
+    def history(self) -> List[Dict[str, Any]]:
+        return list(self._history)
+
+    def reset(self) -> None:
+        self._total_prompt = 0
+        self._total_completion = 0
+        self._total_tokens = 0
+        self._call_count = 0
+        self._by_model.clear()
+        self._history.clear()
+
+    def export_json(self, path: str) -> None:
+        data = {
+            "summary": self.summary(),
+            "history": self.history(),
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    @property
+    def total_tokens(self) -> int:
+        return self._total_tokens
+
+    @property
+    def total_prompt_tokens(self) -> int:
+        return self._total_prompt
+
+    @property
+    def total_completion_tokens(self) -> int:
+        return self._total_completion
+
+    @property
+    def call_count(self) -> int:
+        return self._call_count
+
 
 # ================================================================
 # SPL 拟人心理引擎 · 未成年合规保护版（弱化版）
