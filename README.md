@@ -59,7 +59,9 @@ print(core.snapshot())
 
 <div style="max-width:880px;margin:0 auto;padding:0 16px">
 
-The engine models the general human mental architecture as deterministic, continuous-state subsystems — no LLM, no randomness, fully replayable:
+The engine models the general human mental architecture as deterministic, continuous-state subsystems — no LLM, no randomness, fully replayable.
+
+> **Reproducibility precondition.** "Fully replayable" holds only **after** a virtual clock is injected via `core.set_clock(t)`. Without it, `_now()` falls back to `time.time()`, and two runs of the same input sequence produce different results. Any external reproducibility claim must state this precondition. It is asserted by [`tests/`](./tests/) — cases S1–S4, including a negative test that *requires* the natural clock to be non-reproducible.
 
 - **8-Dimensional Emotion Fluid** — joy / anger / fear / trust / alienation / tension / guilt / shame, each a continuous state with its own target and baseline.
 - **Trauma & Memory** — trauma nodes, memory reconsolidation, Ebbinghaus-style forgetting, suppression–rebound and latent pressure avalanche.
@@ -145,6 +147,7 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 │   ├── spl-chat-server.py      # Local chat demo server (zero-dependency)
 │   └── language-style-demo.py  # Line style rendering demo
 ├── sujin-demo/                 # Reference demo materials
+├── tests/                      # Determinism / replayability conformance suite (zero-dependency)
 ├── assets/                     # banner.svg, overview.svg
 └── docs/index.html
 ```

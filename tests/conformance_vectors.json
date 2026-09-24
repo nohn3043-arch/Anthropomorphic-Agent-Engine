@@ -1,0 +1,530 @@
+{
+  "meta": {
+    "suite": "SPL Pure Core V8.0 — Determinism / Replayability Conformance",
+    "spec_claim": "README §Core: 'models the general human mental architecture as deterministic, continuous-state subsystems — no LLM, no randomness, fully replayable'",
+    "clock_mode": "injected",
+    "clock_origin": 1000.0,
+    "hash": "sha256( json.dumps(snapshot, sort_keys=True, ensure_ascii=False) )",
+    "tolerance": 1e-09,
+    "generated_at": "2026-09-24",
+    "generated_with": "Python 3.13.14 (win32)",
+    "snapshot_sha256_scope": "Bit-exact on the generating interpreter + platform. For cross-platform use, compare `scalars` under `tolerance`.",
+    "reproduce": "python tests/run_conformance.py"
+  },
+  "vectors": [
+    {
+      "id": "V01",
+      "name": "baseline_calm",
+      "steps": [
+        [
+          "event",
+          [
+            "neutral",
+            1.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "728a18be8d73f2731a381a1c555c69e894286de693ed5ea6bef593be10f7e1c6",
+      "scalars": {
+        "energy": 98.19927323716166,
+        "self_esteem": 0.5,
+        "fatigue": 0.0,
+        "excitation": 0.42,
+        "max_trust": 1.0,
+        "suppression_load": 0.08000000000000002,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 0.0,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.0,
+        "memory_count": 0,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.19596242867592262,
+        "愤怒": 0.0,
+        "恐惧": 0.09798121433796131,
+        "信任": 0.5,
+        "疏离": 0.2,
+        "张力": 0.2004845085588893,
+        "愧疚": 0.0,
+        "羞耻": 0.0
+      },
+      "mood": {
+        "愉悦": 0.499988,
+        "紧张": 0.2999736,
+        "精力": 0.70009
+      },
+      "trauma": {}
+    },
+    {
+      "id": "V02",
+      "name": "trust_building",
+      "steps": [
+        [
+          "event",
+          [
+            "compliment",
+            3.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "achievement",
+            3.5
+          ]
+        ],
+        [
+          "event",
+          [
+            "compliment",
+            2.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            120.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "de784f5ae6a4f62588af270f5af26d2f344fc6faec5061f92bbef7db075b75b4",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.500163298143864,
+        "fatigue": 0.0,
+        "excitation": 0.3348509478575048,
+        "max_trust": 1.0,
+        "suppression_load": 0.0,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 0.0,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.0020833333333333333,
+        "memory_count": 1,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.31492715681802197,
+        "愤怒": 0.0,
+        "恐惧": 0.1003125,
+        "信任": 0.5,
+        "疏离": 0.19996407771301172,
+        "张力": 0.20052083333333334,
+        "愧疚": 0.0,
+        "羞耻": 0.0
+      },
+      "mood": {
+        "愉悦": 0.500257699641114,
+        "紧张": 0.2999097072427207,
+        "精力": 0.7003598380323975
+      },
+      "trauma": {}
+    },
+    {
+      "id": "V03",
+      "name": "shame_denial",
+      "steps": [
+        [
+          "event",
+          [
+            "criticism",
+            5.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "insult",
+            4.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "criticism",
+            3.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            60.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "6537b8d002f78c206bb1d3c2b5966660d46aad6139c8bddc1c3eabecc9274d7b",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.4997098045797842,
+        "fatigue": 0.0,
+        "excitation": 0.45619111210390084,
+        "max_trust": 0.9227000000000001,
+        "suppression_load": 0.21004686861438726,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 0.9231801770148914,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.0010416666666666667,
+        "memory_count": 1,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.1997394018284205,
+        "愤怒": 0.10502613241912308,
+        "恐惧": 0.48632847427884496,
+        "信任": 0.002267719853320471,
+        "疏离": 0.7380388962298716,
+        "张力": 0.36397572722359595,
+        "愧疚": 0.0,
+        "羞耻": 5.803908404315994e-05
+      },
+      "mood": {
+        "愉悦": 0.49975955549733997,
+        "紧张": 0.30019649946975546,
+        "精力": 0.700344820929128
+      },
+      "trauma": {
+        "threat": 0.44069753770331876,
+        "betrayal": 0.856
+      }
+    },
+    {
+      "id": "V04",
+      "name": "betrayal_collapse",
+      "steps": [
+        [
+          "event",
+          [
+            "betrayal",
+            5.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "betrayal",
+            4.5
+          ]
+        ],
+        [
+          "event",
+          [
+            "criticism",
+            4.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            60.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "84959644d7bdd7754d9066740dda58fc70478b5d06df79b3da668f9a8ac9d9e4",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.4970510399245641,
+        "fatigue": 0.0,
+        "excitation": 0.45619111210390084,
+        "max_trust": 0.8513080000000001,
+        "suppression_load": 0.0,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 4.384522074560697,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.0010416666666666667,
+        "memory_count": 1,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.19970173614533418,
+        "愤怒": 0.10504496526066624,
+        "恐惧": 0.7801077314064928,
+        "信任": 0.0,
+        "疏离": 0.8667983874108993,
+        "张力": 0.48026041666666663,
+        "愧疚": 0.0,
+        "羞耻": 0.0005897920150871761
+      },
+      "mood": {
+        "愉悦": 0.4996039087479531,
+        "紧张": 0.3003863804560394,
+        "精力": 0.7003295082669696
+      },
+      "trauma": {
+        "threat": 0.856,
+        "betrayal": 0.856
+      }
+    },
+    {
+      "id": "V05",
+      "name": "trauma_accumulation",
+      "steps": [
+        [
+          "event",
+          [
+            "threat",
+            5.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "threat",
+            5.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "insult",
+            5.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            30.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "fb4e75bd76ea343153df7f5aedc6306c81cd202a5551ff675f75f8ac4bb029c6",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.49962131054287745,
+        "fatigue": 0.0,
+        "excitation": 0.6306565869187103,
+        "max_trust": 0.92135,
+        "suppression_load": 0.5730084211567005,
+        "denial_load": 0.22377742462588257,
+        "rationalization_load": 0.0,
+        "latent_pressure": 1.4953800160351516,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.0005208333333333333,
+        "memory_count": 1,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.19985043102463232,
+        "愤怒": 0.10502270115435051,
+        "恐惧": 0.5628995443201961,
+        "信任": 0.0,
+        "疏离": 0.7749717741758922,
+        "张力": 0.39661654422253034,
+        "愧疚": 0.0,
+        "羞耻": 7.573789142450993e-05
+      },
+      "mood": {
+        "愉悦": 0.4997744663505046,
+        "紧张": 0.3001614454390438,
+        "精力": 0.700344808460571
+      },
+      "trauma": {
+        "threat": 0.6297369138899893,
+        "betrayal": 0.9279999999999999
+      }
+    },
+    {
+      "id": "V06",
+      "name": "long_isolation",
+      "steps": [
+        [
+          "event",
+          [
+            "long_isolation",
+            2.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            3600.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "long_isolation",
+            1.5
+          ]
+        ],
+        [
+          "idle",
+          [
+            3600.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "30c32e77fe2a2c348325389a88f52b9a5bb3143b514c0106817120f4eb520321",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.5,
+        "fatigue": 0.0,
+        "excitation": 0.3,
+        "max_trust": 1.0,
+        "suppression_load": 0.0,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 0.0,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.125,
+        "memory_count": 0,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.17499856718014845,
+        "愤怒": 7.164099257911393e-07,
+        "恐惧": 0.11875000000000001,
+        "信任": 0.5,
+        "疏离": 0.2000007164099258,
+        "张力": 0.23125,
+        "愧疚": 0.0,
+        "羞耻": 0.0
+      },
+      "mood": {
+        "愉悦": 0.499995318837248,
+        "紧张": 0.29994830280968143,
+        "精力": 0.7003598380323975
+      },
+      "trauma": {}
+    },
+    {
+      "id": "V07",
+      "name": "sleep_dream",
+      "steps": [
+        [
+          "event",
+          [
+            "criticism",
+            4.0
+          ]
+        ],
+        [
+          "event",
+          [
+            "threat",
+            3.0
+          ]
+        ],
+        [
+          "sleep",
+          [
+            8.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            60.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "8bc5eca083c4062e5215b7845e4f805f653c9c1efc26aa3ce661570bf044a93b",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.5,
+        "fatigue": 0.0,
+        "excitation": 0.3,
+        "max_trust": 1.0,
+        "suppression_load": 0.0,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 0.0,
+        "cognitive_dissonance": 0.0,
+        "sleep_debt": 0.0010416666666666667,
+        "memory_count": 0,
+        "expected_count": 0
+      },
+      "fluid": {
+        "喜悦": 0.31975172907182087,
+        "愤怒": 0.0,
+        "恐惧": 0.10015625,
+        "信任": 0.5,
+        "疏离": 0.14001996879742293,
+        "张力": 0.2002604166666667,
+        "愧疚": 0.0,
+        "羞耻": 0.0
+      },
+      "mood": {
+        "愉悦": 0.8997693719120528,
+        "紧张": 0.050133623025000004,
+        "精力": 1.0
+      },
+      "trauma": {}
+    },
+    {
+      "id": "V08",
+      "name": "dissonance_expectation",
+      "steps": [
+        [
+          "event",
+          [
+            "neutral",
+            1.0
+          ]
+        ],
+        [
+          "expect",
+          [
+            "ev-1",
+            0.9,
+            0.8
+          ]
+        ],
+        [
+          "dissonance",
+          [
+            0.7
+          ]
+        ],
+        [
+          "event",
+          [
+            "compliment",
+            2.0
+          ]
+        ],
+        [
+          "idle",
+          [
+            60.0
+          ]
+        ]
+      ],
+      "snapshot_sha256": "1f68f5984e5e13b92d49e8306ce004f9e786e1289a659ac3d7488ef8d13e76ab",
+      "scalars": {
+        "energy": 100.0,
+        "self_esteem": 0.5000650623565928,
+        "fatigue": 0.0,
+        "excitation": 0.45619111210390084,
+        "max_trust": 1.0,
+        "suppression_load": 0.0,
+        "denial_load": 0.0,
+        "rationalization_load": 0.0,
+        "latent_pressure": 0.0,
+        "cognitive_dissonance": 0.295,
+        "sleep_debt": 0.0010416666666666667,
+        "memory_count": 1,
+        "expected_count": 1
+      },
+      "fluid": {
+        "喜悦": 0.2881936062976935,
+        "愤怒": 0.0,
+        "恐惧": 0.10015625,
+        "信任": 0.5,
+        "疏离": 0.1999849005775389,
+        "张力": 0.2002604166666667,
+        "愧疚": 0.0,
+        "羞耻": 0.0
+      },
+      "mood": {
+        "愉悦": 0.5001157128450163,
+        "紧张": 0.30005058231090254,
+        "精力": 0.7002699190081
+      },
+      "trauma": {}
+    }
+  ]
+}
