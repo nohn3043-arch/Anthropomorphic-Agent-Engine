@@ -142,14 +142,29 @@ logger.log_llm_call(model="gpt-4", prompt_preview="Hello...",
 
 ```
 ANTHROPOMORPHIC-AGENT-ENGINE/
-├── SPL-anthropic-engine.py     # Core engine + NarrativeMapper
-├── feature/                    # Goal / Identity / value / world / bias / language-style modules
-│   ├── spl-chat-server.py      # Local chat demo server (zero-dependency)
-│   └── language-style-demo.py  # Line style rendering demo
-├── sujin-demo/                 # Reference demo materials
+├── SPL-anthropic-engine.py     # Core engine (SPL Pure Core V8.0), NarrativeMapper,
+│                               #   AuditLogger / TokenStats, LLM adapter interface
+├── feature/                    # Composable modules (integration-side configuration)
+│   ├── Goal module.py          #   goal graph · conflict level · emotion vector
+│   ├── Identity module.py      #   identity nodes · strength · conflict
+│   ├── bias module.py          #   appraisal bias profiles (paranoid / optimistic / depressive)
+│   ├── value module.py         #   core-value threat · emotion amplification
+│   ├── world module.py         #   belief model · prediction error
+│   └── language style.py       #   LanguageStyleEngine — renders prompt_injection for the LLM
 ├── tests/                      # Determinism / replayability conformance suite (zero-dependency)
-├── assets/                     # banner.svg, overview.svg
-└── docs/index.html
+│   ├── run_conformance.py      #   runner: python tests/run_conformance.py
+│   ├── conformance_vectors.json  # standard vectors + expected hashes
+│   └── README.md               #   suite docs, incl. the clock precondition
+├── minor-protection/           # Minor-protection variant (age gate + four-layer protection)
+│   ├── SPL-anthropic-minor-engine.py
+│   └── SPL-anthropic-minor-server.py
+├── docs/                       # Public spec: anthromorphic-agent-engine-standards.md
+├── assets/                     # banner.svg / overview.svg (+ .png exports)
+├── sujin-demo                  # Reference demo script (single file, no LLM calls)
+├── logs/                       # Runtime audit logs (JSONL, untracked)
+├── banner.png
+├── IMDA_AI_Verify_Causal_Audit_Report.pdf
+└── LICENSE
 ```
 
 <p align="center">— ✦ —</p>
