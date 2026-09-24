@@ -12,6 +12,10 @@
   <em>Anthropomorphic Psychology · SPL Pure Core V8.0</em>
 </blockquote>
 
+<p align="center">
+[简体中文](README-zh.md) | English
+</p>
+
 <div style="max-width:880px;margin:0 auto;padding:0 16px">
 
 ## ✦ About
