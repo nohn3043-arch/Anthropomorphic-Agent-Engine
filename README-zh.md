@@ -35,27 +35,30 @@
 ```bash
 # 主仓库：GitHub
 git clone https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine.git
-# 镜像：Gitee
-# git clone https://gitee.com/sjiun/Anthropomorphic-Agent-Engine.git
+# 镜像：Gitee（组织 nohn-ecosystem）
+# git clone https://gitee.com/nohn-ecosystem/Anthropomorphic-Agent-Engine.git
 cd Anthropomorphic-Agent-Engine
 # 纯 Python ≥3.8 —— 仅用标准库，无依赖
-python "SPL-anthropic-engine.py"   # 运行引擎 / 内置演示
+python sujin-demo                    # 完整引擎演示（角色：苏瑾 · 高级企业顾问）
+python "feature/language style.py"   # 语言风格渲染演示
+python tests/run_conformance.py      # 确定性 / 可复现性一致性测试
 ```
 
-### 从 PyPI 安装
+> 核心文件 `SPL-anthropic-engine.py` 是**库**，没有 `__main__` 入口，**直接运行不会有任何输出**。请用 `importlib` 加载（见下方「使用」），或运行上面的演示入口。
 
-该引擎也已发布至 PyPI：[`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/)：
-
-```bash
-pip install spl-agent-engine==0.4.0
-```
+### 加载引擎
 
 ```python
-from spl_agent_engine import SPLPureCoreV7_3
-core = SPLPureCoreV7_3()
+import importlib.util
+spec = importlib.util.spec_from_file_location("spl_core", "SPL-anthropic-engine.py")
+spl = importlib.util.module_from_spec(spec); spec.loader.exec_module(spl)
+
+core = spl.SPLPureCoreV7_3()
 core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
 print(core.snapshot())
 ```
+
+> ⚠️ **PyPI 版本已冻结。** [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/) 在 PyPI 上存在，但最新版本为 `0.4.0`（2026-09-02）。打包文件已于提交 `e39a606` / `7d36ff1` 从本仓库移除且尚未重建，因此**PyPI 包已不再跟随仓库源码**。如需当前行为，请使用上方的 clone 方式。
 
 <p align="center">— ✦ —</p>
 
@@ -86,7 +89,6 @@ print(core.snapshot())
 | 身份引擎 | `feature/Identity module.py` | 多重身份模型；身份冲突会注入持续的基线紧张。 |
 | 目标 / 价值 / 偏差 / 世界 | `feature/*.py` | 可组合的驱动力、价值评估、认知偏差与世界模型先验。 |
 | 语言风格渲染器 | `feature/language style.py` | 将内部状态转译为"角色该如何说话"的风格指令 / 台词渲染。 |
-| 聊天演示服务器 | `feature/spl-chat-server.py` | 零依赖本地聊天服务器（stdlib http.server），可选人格直接对话。 |
 
 </div>
 
@@ -112,13 +114,11 @@ vec = spl.NarrativeMapper.map_event("insult", intensity=1.0)
 ### Token 计量
 
 ```python
-from spl_agent_engine import TokenUsage, TokenStats
-
-stats = TokenStats()
+stats = spl.TokenStats()   # `spl` = 上方通过 importlib 加载的模块
 
 # 每次 LLM 调用后记录用量
-usage = TokenUsage(prompt_tokens=120, completion_tokens=80,
-                   total_tokens=200, model="gpt-4")
+usage = spl.TokenUsage(prompt_tokens=120, completion_tokens=80,
+                       total_tokens=200, model="gpt-4")
 stats.record(usage)
 
 # 汇总
@@ -265,8 +265,8 @@ ANTHROPOMORPHIC-AGENT-ENGINE 是 NOHN AI 生态的一员 —— 一个围绕第�
 
 | 项目 | 仓库 | 角色 |
 |---|---|---|
-| **Second-Perspective (GCAE)** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) | 全局认知审计引擎 —— 五算子因果审计内核（IMDA 95/100） |
-| **NOMOS** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective)（`Intelligent-Decision-Hub--Nomos` 分支） | 可审计的确定性决策中枢（IMDA 95/100） |
+| **Second-Perspective (GCAE)** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) | 全局认知审计引擎 —— 五算子因果审计内核 |
+| **NOMOS** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective)（`Intelligent-Decision-Hub--Nomos` 分支） | 可审计的确定性决策中枢 |
 | **SPL-G1** | [nohn3043-arch/SPL-G1](https://github.com/nohn3043-arch/SPL-G1) | 硬件因果审计可信计算单元（TCU） |
 | **SPL-Virtual-World-Base** | [nohn3043-arch/Second-Reality](https://github.com/nohn3043-arch/Second-Reality) | 虚拟世界与元宇宙基础设施（宪法 / 法律 / 桥） |
 | **Story-Engine** | [nohn3043-arch/story-engine](https://github.com/nohn3043-arch/story-engine) | 长篇叙事一致性引擎 |

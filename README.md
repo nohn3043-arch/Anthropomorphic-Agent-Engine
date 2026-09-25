@@ -36,26 +36,29 @@
 # Primary: GitHub
 git clone https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine.git
 # Mirror: Gitee
-# git clone https://gitee.com/sjiun/Anthropomorphic-Agent-Engine.git
+# git clone https://gitee.com/nohn-ecosystem/Anthropomorphic-Agent-Engine.git
 cd Anthropomorphic-Agent-Engine
 # Pure Python ≥3.8 — standard library only, no dependencies
-python "SPL-anthropic-engine.py"   # Run engine / built-in demo
+python sujin-demo                    # Full engine demo (character: Su Jin)
+python "feature/language style.py"   # Language-style rendering demo
+python tests/run_conformance.py      # Determinism / replayability conformance suite
 ```
 
-### Install from PyPI
+> The core file `SPL-anthropic-engine.py` is a **library** — it has no `__main__` entry point, so running it directly produces no output. Load it via `importlib` (see Usage below) or run one of the demo entry points above.
 
-The engine is also published on PyPI as [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/):
-
-```bash
-pip install spl-agent-engine==0.4.0
-```
+### Load the engine
 
 ```python
-from spl_agent_engine import SPLPureCoreV7_3
-core = SPLPureCoreV7_3()
+import importlib.util
+spec = importlib.util.spec_from_file_location("spl_core", "SPL-anthropic-engine.py")
+spl = importlib.util.module_from_spec(spec); spec.loader.exec_module(spl)
+
+core = spl.SPLPureCoreV7_3()
 core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
 print(core.snapshot())
 ```
+
+> ⚠️ **PyPI release is frozen.** [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/) is on PyPI, but its latest release is `0.4.0` (2026-09-02). The packaging files were removed from this repository in commits `e39a606` / `7d36ff1` and have not been rebuilt, so **the PyPI package no longer tracks the repository sources**. Use the clone above for current behaviour.
 
 <p align="center">— ✦ —</p>
 
@@ -86,7 +89,6 @@ The engine models the general human mental architecture as deterministic, contin
 | Identity Engine | `feature/Identity module.py` | Multi-identity model; identity conflict injects persistent baseline tension. |
 | Goal / Value / Bias / World | `feature/*.py` | Composable drives, valuations, cognitive biases, and world-model priors. |
 | Language Style Renderer | `feature/language style.py` | Translates internal states into "how the character should speak" style directives / line rendering. |
-| Chat Demo Server | `feature/spl-chat-server.py` | Zero-dependency local chat server (stdlib http.server), optional personality direct dialogue. |
 
 </div>
 
@@ -112,13 +114,11 @@ vec = spl.NarrativeMapper.map_event("insult", intensity=1.0)
 ### Token Metering
 
 ```python
-from spl_agent_engine import TokenUsage, TokenStats
-
-stats = TokenStats()
+stats = spl.TokenStats()   # `spl` = module loaded via importlib (see above)
 
 # Record usage after each LLM call
-usage = TokenUsage(prompt_tokens=120, completion_tokens=80,
-                   total_tokens=200, model="gpt-4")
+usage = spl.TokenUsage(prompt_tokens=120, completion_tokens=80,
+                       total_tokens=200, model="gpt-4")
 stats.record(usage)
 
 # Summary
@@ -265,8 +265,8 @@ ANTHROPOMORPHIC-AGENT-ENGINE is a member of the NOHN AI ecosystem — a family o
 
 | Project | Repository | Role |
 |---|---|---|
-| **Second-Perspective (GCAE)** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) | Global cognitive audit engine — five-operator causal audit core (IMDA 95/100) |
-| **NOMOS** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) (`Intelligent-Decision-Hub--Nomos` branch) | Auditable deterministic decision center (IMDA 95/100) |
+| **Second-Perspective (GCAE)** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) | Global cognitive audit engine — five-operator causal audit core |
+| **NOMOS** | [nohn3043-arch/second-perspective](https://github.com/nohn3043-arch/second-perspective) (`Intelligent-Decision-Hub--Nomos` branch) | Auditable deterministic decision center |
 | **SPL-G1** | [nohn3043-arch/SPL-G1](https://github.com/nohn3043-arch/SPL-G1) | Hardware causal audit trusted computing unit (TCU) |
 | **SPL-Virtual-World-Base** | [nohn3043-arch/Second-Reality](https://github.com/nohn3043-arch/Second-Reality) | Virtual world and metaverse infrastructure (constitution / laws / bridges) |
 | **Story-Engine** | [nohn3043-arch/story-engine](https://github.com/nohn3043-arch/story-engine) | Long-form narrative consistency engine |
