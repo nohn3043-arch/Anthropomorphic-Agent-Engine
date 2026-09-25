@@ -191,6 +191,8 @@ A compliance-mitigated variant for **underage (&lt;18) emotional companionship**
 
 > ⚠️ Compliance Notice: This directory is a **research / demo compliance framework** intended to demonstrate the protective capabilities and data mechanisms required for underage emotional companionship. Before launching a production service, you must complete legal review, DPIA / security assessment / algorithm filing, and connect real guardian notification channels with region-specific crisis resources.
 
+📄 Full compliance documentation (mechanism-to-article mapping, known limitations disclosure, production deployment obligations): [minor-protection/COMPLIANCE.md](./minor-protection/COMPLIANCE.md)
+
 ### Differences from Main Engine (Mechanism-Level Risk Reduction)
 
 | Dimension | Main Engine `SPL-anthropic-engine.py` | Minor Variant `minor-protection/` |

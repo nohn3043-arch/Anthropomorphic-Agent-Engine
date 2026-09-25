@@ -191,6 +191,8 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 
 > ⚠️ 合规提示：本目录是**研究 / 演示性质的合规框架**，旨在演示未成年人情感陪伴所需的保护能力与数据机制。启动生产服务前，你必须完成法律审查、DPIA / 安全评估 / 算法备案，并接入真实监护人通知渠道与地区特定的危机资源。
 
+📄 完整合规说明（机制 → 条款映射、已知局限披露、生产部署前置义务）：[minor-protection/COMPLIANCE.md](./minor-protection/COMPLIANCE.md)
+
 ### 与主引擎的差异（机制级风险削减）
 
 | 维度 | 主引擎 `SPL-anthropic-engine.py` | 未成年人变体 `minor-protection/` |
