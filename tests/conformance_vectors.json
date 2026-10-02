@@ -24,9 +24,9 @@
           ]
         ]
       ],
-      "snapshot_sha256": "728a18be8d73f2731a381a1c555c69e894286de693ed5ea6bef593be10f7e1c6",
+      "snapshot_sha256": "e4dc72433cc34c5aa7d6f7d2a00178a661ed0b2898c6a4703696e9f4b9de5363",
       "scalars": {
-        "energy": 98.19927323716166,
+        "energy": 98.19927315104766,
         "self_esteem": 0.5,
         "fatigue": 0.0,
         "excitation": 0.42,
@@ -89,10 +89,10 @@
           ]
         ]
       ],
-      "snapshot_sha256": "de784f5ae6a4f62588af270f5af26d2f344fc6faec5061f92bbef7db075b75b4",
+      "snapshot_sha256": "37baa2be91e9e7dae19040bb4bdff61cee45bf2876911641d2dbaf203209e390",
       "scalars": {
         "energy": 100.0,
-        "self_esteem": 0.500163298143864,
+        "self_esteem": 0.500167793756277,
         "fatigue": 0.0,
         "excitation": 0.3348509478575048,
         "max_trust": 1.0,
@@ -154,17 +154,17 @@
           ]
         ]
       ],
-      "snapshot_sha256": "6537b8d002f78c206bb1d3c2b5966660d46aad6139c8bddc1c3eabecc9274d7b",
+      "snapshot_sha256": "96cb9158fe7e2280d6045e2f51531a4ba503977d3eb1e7b0cfa9c8094a6083cf",
       "scalars": {
         "energy": 100.0,
-        "self_esteem": 0.4997098045797842,
+        "self_esteem": 0.49970980179933455,
         "fatigue": 0.0,
         "excitation": 0.45619111210390084,
         "max_trust": 0.9227000000000001,
-        "suppression_load": 0.21004686861438726,
+        "suppression_load": 0.16729735165379234,
         "denial_load": 0.0,
         "rationalization_load": 0.0,
-        "latent_pressure": 0.9231801770148914,
+        "latent_pressure": 0.9231892974519728,
         "cognitive_dissonance": 0.0,
         "sleep_debt": 0.0010416666666666667,
         "memory_count": 1,
@@ -222,17 +222,17 @@
           ]
         ]
       ],
-      "snapshot_sha256": "84959644d7bdd7754d9066740dda58fc70478b5d06df79b3da668f9a8ac9d9e4",
+      "snapshot_sha256": "75e050796fef0769968e36cb911fc6cb729efb6edc6e07c1fc5949d28995375b",
       "scalars": {
         "energy": 100.0,
-        "self_esteem": 0.4970510399245641,
+        "self_esteem": 0.49747625148335733,
         "fatigue": 0.0,
         "excitation": 0.45619111210390084,
         "max_trust": 0.8513080000000001,
         "suppression_load": 0.0,
         "denial_load": 0.0,
         "rationalization_load": 0.0,
-        "latent_pressure": 4.384522074560697,
+        "latent_pressure": 3.808765102198897,
         "cognitive_dissonance": 0.0,
         "sleep_debt": 0.0010416666666666667,
         "memory_count": 1,
@@ -290,17 +290,17 @@
           ]
         ]
       ],
-      "snapshot_sha256": "fb4e75bd76ea343153df7f5aedc6306c81cd202a5551ff675f75f8ac4bb029c6",
+      "snapshot_sha256": "f74c9cb67f62845f14a8abcea82147ce2d33dfa2a8563cdb6dc4bfb3763f3c6d",
       "scalars": {
         "energy": 100.0,
-        "self_esteem": 0.49962131054287745,
+        "self_esteem": 0.4996213088711144,
         "fatigue": 0.0,
         "excitation": 0.6306565869187103,
         "max_trust": 0.92135,
-        "suppression_load": 0.5730084211567005,
-        "denial_load": 0.22377742462588257,
+        "suppression_load": 0.5397987635900946,
+        "denial_load": 0.2232693199910598,
         "rationalization_load": 0.0,
-        "latent_pressure": 1.4953800160351516,
+        "latent_pressure": 1.4953848533094927,
         "cognitive_dissonance": 0.0,
         "sleep_debt": 0.0005208333333333333,
         "memory_count": 1,
@@ -357,7 +357,7 @@
           ]
         ]
       ],
-      "snapshot_sha256": "30c32e77fe2a2c348325389a88f52b9a5bb3143b514c0106817120f4eb520321",
+      "snapshot_sha256": "a6e7783f2871630bb7c636818d396bccf0ad200ca8f7b8eebfbceed56b84d90e",
       "scalars": {
         "energy": 100.0,
         "self_esteem": 0.5,
@@ -421,7 +421,7 @@
           ]
         ]
       ],
-      "snapshot_sha256": "8bc5eca083c4062e5215b7845e4f805f653c9c1efc26aa3ce661570bf044a93b",
+      "snapshot_sha256": "d50e83435ba81375f22281bc747d5d3cb789c4eee4286b7eb53dfa7365f5ce71",
       "scalars": {
         "energy": 100.0,
         "self_esteem": 0.5,
@@ -493,10 +493,10 @@
           ]
         ]
       ],
-      "snapshot_sha256": "1f68f5984e5e13b92d49e8306ce004f9e786e1289a659ac3d7488ef8d13e76ab",
+      "snapshot_sha256": "0e973177c8d8105923019ca3aae0f278e8e1399ff290c7f62c934b3eb2238be4",
       "scalars": {
         "energy": 100.0,
-        "self_esteem": 0.5000650623565928,
+        "self_esteem": 0.5000650627469345,
         "fatigue": 0.0,
         "excitation": 0.45619111210390084,
         "max_trust": 1.0,

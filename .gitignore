@@ -6,3 +6,9 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Test reports (tests/run_regression.py --out-dir / run_conformance.py --out-dir)
+reports/
+
+# Runtime audit logs (written whenever audit_enabled=True; contains session state)
+logs/

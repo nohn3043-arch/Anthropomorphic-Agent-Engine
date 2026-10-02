@@ -20,7 +20,7 @@
 
 ## ✦ About
 
-<p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE is an anthropomorphic psychology engine built on SPL Pure Core V8.0. It models cognition, emotion, motivation, and social behavior as composable subsystems, giving AI agents human-like internal states and consistent personalities that produce self-consistent, credible, emotionally resonant behavior over long-term interactions.</p>
+<p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE is an anthropomorphic psychology engine built on SPL Pure Core V8.0. It models emotion, mood, memory, trauma, trust, self-esteem, sleep and expectation as deterministic, continuous-state subsystems inside a single core (<code>SPL-anthropic-engine.py</code>), giving AI agents human-like internal states that stay self-consistent and bit-exactly replayable over long-term interactions. The extension modules under <code>feature-guide/</code> are reference guidance only and are <strong>not wired into the core</strong> — see <strong>Extension Modules</strong> below.</p>
 
 <p align="center">
   <img src="assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE overview" style="width:100%">
@@ -40,7 +40,7 @@ git clone https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine.git
 cd Anthropomorphic-Agent-Engine
 # Pure Python ≥3.8 — standard library only, no dependencies
 python sujin-demo                    # Full engine demo (character: Su Jin)
-python "feature/language style.py"   # Language-style rendering demo
+python "feature-guide/language style.py"   # Language-style rendering demo
 python tests/run_conformance.py      # Determinism / replayability conformance suite
 ```
 
@@ -79,16 +79,18 @@ The engine models the general human mental architecture as deterministic, contin
 
 </div>
 
-## ✦ Composable Modules
+## ✦ Extension Modules — reference only, not wired into the core
+
+> These modules are **guidance / design references**, not runtime components. They emit a `tension_base` key that is not part of the interoceptive-vector contract (§4.1), so their vectors never reach the core. This is stated by the specification itself — see `docs/agent-standard.md` §4.5.
 
 <div style="max-width:880px;margin:0 auto;padding:0 16px">
 
-| Module | File | Responsibility |
-|---|---|---|
-| Narrative Mapper | `SPL-anthropic-engine.py` | External, replaceable personality layer (optimistic / paranoid / misanthropic), translates events into interoceptive vectors. |
-| Identity Engine | `feature/Identity module.py` | Multi-identity model; identity conflict injects persistent baseline tension. |
-| Goal / Value / Bias / World | `feature/*.py` | Composable drives, valuations, cognitive biases, and world-model priors. |
-| Language Style Renderer | `feature/language style.py` | Translates internal states into "how the character should speak" style directives / line rendering. |
+| Module | File | Status | Responsibility |
+|---|---|---|---|
+| Narrative Mapper | `SPL-anthropic-engine.py` | **wired** | External, replaceable personality layer (optimistic / paranoid / misanthropic), translates events into interoceptive vectors. |
+| Language Style Renderer | `feature-guide/language style.py` | standalone script | Translates internal states into "how the character should speak" style directives / line rendering. |
+| Identity Engine | `feature-guide/Identity module.py` | **not wired** | Multi-identity model; identity conflict injects persistent baseline tension. |
+| Goal / Value / Bias / World | `feature-guide/*.py` | **not wired** | Composable drives, valuations, cognitive biases, and world-model priors. |
 
 </div>
 
@@ -148,8 +150,8 @@ logger.log_llm_call(model="gpt-4", prompt_preview="Hello...",
 ANTHROPOMORPHIC-AGENT-ENGINE/
 ├── SPL-anthropic-engine.py     # Core engine (SPL Pure Core V8.0), NarrativeMapper,
 │                               #   AuditLogger / TokenStats, LLM adapter interface
-├── feature/                    # Composable modules (integration-side configuration)
-│   ├── Goal module.py          #   goal graph · conflict level · emotion vector
+├── feature-guide/              # Extension modules — reference only, NOT wired (spec §4.5)
+│   ├── Goal module.py          #   goal graph · conflict level · emotion vector [not wired]
 │   ├── Identity module.py      #   identity nodes · strength · conflict
 │   ├── bias module.py          #   appraisal bias profiles (paranoid / optimistic / depressive)
 │   ├── value module.py         #   core-value threat · emotion amplification
@@ -162,10 +164,10 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 ├── minor-protection/           # Minor-protection variant (age gate + four-layer protection)
 │   ├── SPL-anthropic-minor-engine.py
 │   └── SPL-anthropic-minor-server.py
-├── docs/                       # Public spec: anthromorphic-agent-engine-standards.md
+├── docs/                       # Data contract standard: agent-standard.md
 ├── assets/                     # banner.svg / overview.svg (+ .png exports)
 ├── sujin-demo                  # Reference demo script (single file, no LLM calls)
-├── logs/                       # Runtime audit logs (JSONL, untracked)
+├── logs/                       # Runtime audit logs (JSONL, git-ignored)
 ├── banner.png
 ├── IMDA_AI_Verify_Causal_Audit_Report.pdf
 └── LICENSE

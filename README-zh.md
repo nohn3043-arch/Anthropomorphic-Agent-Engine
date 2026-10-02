@@ -20,7 +20,7 @@
 
 ## ✦ 关于
 
-<p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE 是一个构建于 SPL Pure Core V8.0 之上的拟人心理引擎。它将认知、情绪、动机与社会行为建模为可组合的子系统，赋予 AI 智能体类人的内部状态与一致人格，从而在长期交互中产生自洽、可信、有情感共鸣的行为。</p>
+<p style="font-size:15px;line-height:1.8;color:#2C2C2C">ANTHROPOMORPHIC-AGENT-ENGINE 是一个构建于 SPL Pure Core V8.0 之上的拟人心理引擎。它将情绪、心境、记忆、创伤、信任、自尊、睡眠与预期建模为单一内核（<code>SPL-anthropic-engine.py</code>）内的确定性连续状态子系统，赋予 AI 智能体类人的内部状态，并使其在长期交互中保持自洽、可逐比特回放。<code>feature-guide/</code> 下的扩展模块仅为参考指导，<strong>未接入内核</strong> —— 详见下文 <strong>扩展模块</strong>。</p>
 
 <p align="center">
   <img src="assets/overview.svg" alt="ANTHROPOMORPHIC-AGENT-ENGINE 概览" style="width:100%">
@@ -40,7 +40,7 @@ git clone https://github.com/nohn3043-arch/Anthropomorphic-Agent-Engine.git
 cd Anthropomorphic-Agent-Engine
 # 纯 Python ≥3.8 —— 仅用标准库，无依赖
 python sujin-demo                    # 完整引擎演示（角色：苏瑾 · 高级企业顾问）
-python "feature/language style.py"   # 语言风格渲染演示
+python "feature-guide/language style.py"   # 语言风格渲染演示
 python tests/run_conformance.py      # 确定性 / 可复现性一致性测试
 ```
 
@@ -58,7 +58,7 @@ core.process_vector({"belonging": 0.5, "threat": -0.1}, 1.0)
 print(core.snapshot())
 ```
 
-> ⚠️ **PyPI 版本已冻结。** [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/) 在 PyPI 上存在，但最新版本为 `0.4.0`（2026-09-02）。打包文件已于提交 `e39a606` / `7d36ff1` 从本仓库移除且尚未重建，因此**PyPI 包已不再跟随仓库源码**。如需当前行为，请使用上方的 clone 方式。
+> ⚠️ **PyPI 打包已恢复。** [`spl-agent-engine`](https://pypi.org/project/spl-agent-engine/) 在 PyPI 上的最新版本仍为 `0.4.0`（2026-09-02）。构建配置现位于 [`packaging/`](./packaging/)，目标版本 `0.4.1`，**尚未上传** —— 在上传之前，PyPI 包仍不跟随仓库源码。`0.4.1` 发布后可 `pip install -U spl-agent-engine`，或使用上方的 clone 方式获取当前行为。
 
 <p align="center">— ✦ —</p>
 
@@ -79,16 +79,18 @@ print(core.snapshot())
 
 </div>
 
-## ✦ 可组合模块
+## ✦ 扩展模块 —— 仅作参考，未接入内核
+
+> 这些模块是**指导 / 设计参考文件**，不是运行时组件。它们输出的 `tension_base` 键不在内感受向量契约（§4.1）之内，因此其向量**不会进入内核**。这一事实由规范本身写明 —— 见 `docs/agent-standard.md` §4.5。
 
 <div style="max-width:880px;margin:0 auto;padding:0 16px">
 
-| 模块 | 文件 | 职责 |
-|---|---|---|
-| 叙事映射器 | `SPL-anthropic-engine.py` | 外部可替换的人格层（乐观 / 偏执 / 厌世），将事件转译为内感受向量。 |
-| 身份引擎 | `feature/Identity module.py` | 多重身份模型；身份冲突会注入持续的基线紧张。 |
-| 目标 / 价值 / 偏差 / 世界 | `feature/*.py` | 可组合的驱动力、价值评估、认知偏差与世界模型先验。 |
-| 语言风格渲染器 | `feature/language style.py` | 将内部状态转译为"角色该如何说话"的风格指令 / 台词渲染。 |
+| 模块 | 文件 | 状态 | 职责 |
+|---|---|---|---|
+| 叙事映射器 | `SPL-anthropic-engine.py` | **已接入** | 外部可替换的人格层（乐观 / 偏执 / 厌世），将事件转译为内感受向量。 |
+| 语言风格渲染器 | `feature-guide/language style.py` | 独立脚本 | 将内部状态转译为"角色该如何说话"的风格指令 / 台词渲染。 |
+| 身份引擎 | `feature-guide/Identity module.py` | **未接入** | 多重身份模型；身份冲突会注入持续的基线紧张。 |
+| 目标 / 价值 / 偏差 / 世界 | `feature-guide/*.py` | **未接入** | 可组合的驱动力、价值评估、认知偏差与世界模型先验。 |
 
 </div>
 
@@ -148,8 +150,8 @@ logger.log_llm_call(model="gpt-4", prompt_preview="Hello...",
 ANTHROPOMORPHIC-AGENT-ENGINE/
 ├── SPL-anthropic-engine.py     # 核心引擎（SPL Pure Core V8.0）、NarrativeMapper、
 │                               #   AuditLogger / TokenStats、LLM 适配器接口
-├── feature/                    # 可组合模块（集成侧配置）
-│   ├── Goal module.py          #   目标图 · 冲突水平 · 情绪向量
+├── feature-guide/                    # 扩展模块 —— 仅参考，未接入内核（规范 §4.5）
+│   ├── Goal module.py          #   目标图 · 冲突水平 · 情绪向量 [未接入]
 │   ├── Identity module.py      #   身份节点 · 强度 · 冲突
 │   ├── bias module.py          #   评价偏差剖面（偏执 / 乐观 / 抑郁）
 │   ├── value module.py         #   核心价值观威胁 · 情绪放大
@@ -162,10 +164,10 @@ ANTHROPOMORPHIC-AGENT-ENGINE/
 ├── minor-protection/           # 未成年人保护变体（年龄闸门 + 四层保护）
 │   ├── SPL-anthropic-minor-engine.py
 │   └── SPL-anthropic-minor-server.py
-├── docs/                       # 公开规范：anthromorphic-agent-engine-standards.md
+├── docs/                       # 数据契约标准：agent-standard.md
 ├── assets/                     # banner.svg / overview.svg（+ .png 导出）
 ├── sujin-demo                  # 参考演示脚本（单文件，无 LLM 调用）
-├── logs/                       # 运行期审计日志（JSONL，未纳入版本控制）
+├── logs/                       # 运行期审计日志（JSONL，已被 .gitignore 忽略）
 ├── banner.png
 ├── IMDA_AI_Verify_Causal_Audit_Report.pdf
 └── LICENSE

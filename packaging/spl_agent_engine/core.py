@@ -71,9 +71,69 @@ class AuditLogger:
         keys = ("fluid", "mood", "self_esteem", "energy", "fatigue",
                 "excitation", "max_trust", "suppression_load", "denial_load",
                 "rationalization_load", "latent_pressure",
-                "cognitive_dissonance", "sleep_debt", "trauma",
+                "cognitive_dissonance", "sleep_debt", "arousal_recent",
+                "trauma",
                 "memory_count", "expected_count")
         return {k: snap.get(k) for k in keys if k in snap}
+
+    # ── 状态转移归因：标量字段 + 需逐项展开的字典字段 ──
+    DELTA_SCALARS = (
+        "self_esteem", "energy", "fatigue", "excitation", "max_trust",
+        "suppression_load", "denial_load", "rationalization_load",
+        "latent_pressure", "cognitive_dissonance", "sleep_debt",
+        "arousal_recent", "memory_count", "expected_count",
+    )
+    DELTA_NESTED = ("fluid", "mood", "trauma")
+
+    # ── 状态转移归因 ──
+    @staticmethod
+    def _put_delta(delta: Dict[str, Any], key: str, b: Any, a: Any) -> None:
+        """写入单个字段的变化。
+
+        两侧都是数值时附带 delta；非数值（枚举/列表/布尔）只记录变化本身，
+        因为"新增一个危机标记"本身就是审计事件，尽管它没有算术差。
+        """
+        if b == a:
+            return
+        entry: Dict[str, Any] = {"before": b, "after": a}
+        if (isinstance(b, (int, float)) and isinstance(a, (int, float))
+                and not isinstance(b, bool) and not isinstance(a, bool)):
+            entry["delta"] = round(a - b, 6)
+        delta[key] = entry
+
+    @classmethod
+    def snapshot_delta(cls, before: Dict[str, Any], after: Dict[str, Any]
+                       ) -> Dict[str, Any]:
+        """计算两次快照之间的逐字段状态变化。
+
+        审计记录只落终值状态时，能证明"某时刻状态是什么"，但不能归因
+        "哪次输入造成了哪些字段的多少变化"。本方法补上这一环，使状态转移
+        可被独立复核，而不必信任实现方。
+
+        Args:
+            before: 状态变更前的 snapshot()
+            after:  状态变更后的 snapshot()
+
+        Returns:
+            {"字段": {"before": x, "after": y, "delta": d}, ...}
+            仅包含实际发生变化的字段。标量直接用字段名；字典子模型展开为
+            "fluid.喜悦" 这样的点号路径。
+        """
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return {}
+        delta: Dict[str, Any] = {}
+        for k in cls.DELTA_SCALARS:
+            b, a = before.get(k), after.get(k)
+            if b is None and a is None:
+                continue
+            cls._put_delta(delta, k, b, a)
+        for group in cls.DELTA_NESTED:
+            gb, ga = before.get(group), after.get(group)
+            if not isinstance(gb, dict) or not isinstance(ga, dict):
+                continue
+            for k in sorted(set(gb) | set(ga)):
+                cls._put_delta(delta, "%s.%s" % (group, k), gb.get(k), ga.get(k))
+        return delta
 
     def log_llm_call(self, model: str, prompt_preview: str,
                      usage: Optional["TokenUsage"] = None,
@@ -324,7 +384,18 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         "紧张": 0.3,    # tension —— 有多紧绷
         "精力": 0.7,    # vigor —— 有多有劲（不是生理能量，是主观感受）
     })
-    MOOD_INERTIA: float = 0.0003   # 心境变化极慢（~1小时半衰期）
+    # 心境收敛速率不再是固定常数：
+    #   MOOD_RATE_BASE —— 向靶标松弛的基础速率（每秒）。
+    #     0.0003/s 对应"约每秒调用一次"下旧的"每步走一格"常数，
+    #     但现在它与调用次数无关，只与经过的真实时间有关。
+    MOOD_RATE_BASE: float = 0.0003
+    MOOD_AROUSAL_GAIN: float = 2.0    # 唤醒对方松弛速率的放大倍数
+    MOOD_AROUSAL_TAU: float = 1800.0  # 唤醒记忆的时间常数（30 分钟）
+    MOOD_AROUSAL_EMA: float = 0.05    # 唤醒进入慢记忆的速率
+    MOOD_DOSE_PLEASANT: float = 0.10  # 事件对愉悦的位移增益
+    MOOD_DOSE_TENSION: float = 0.12   # 事件对紧张的位移增益
+    MOOD_DOSE_VIGOR: float = 0.05     # 事件对精力的位移增益
+    arousal_recent: float = 0.0       # 近期事件唤醒的慢记忆 [0,1]
 
     # ---------- V8.0 睡眠系统 ----------
     sleep_debt: float = 0.0                # 睡眠债 [0,1]，累积到 1.0 意味着极度缺觉
@@ -501,6 +572,7 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             event_id: 可选事件标识，用于匹配预期（trigger 预期系统的 surprise 计算）
         """
         self._advance_time()
+        before = self.snapshot()   # 审计基线：本次状态转移的 delta 起点
 
         # V8.0: 预期匹配——在认知增益之前计算 surprise
         surprise = 0.0
@@ -532,7 +604,12 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             self._erode_trust(abs(perceived["belonging"]))
 
         self._latent_accumulate(perceived)
-        self._vector_to_fluid(perceived)
+
+        # 防御分配（层级 1 否认 → 层级 2 合理化）必须先于情绪写入：
+        # 否则被否认/被合理化的部分仍以未削减的形式进入流体，
+        # "否认成功 → 威胁感知降低"就不会成立。
+        defended, residual = self._defense_allocation(perceived)
+        self._vector_to_fluid(defended)
 
         # V8.0: 自尊更新（在社会反馈事件后）
         self._update_self_esteem(perceived)
@@ -540,11 +617,13 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         # V8.0: 认知失调处理
         self._dissonance_dynamics(perceived)
 
-        # V8.0: 扩展防御（先否认→再合理化→最后压抑——层级递进）
-        self._defense_hierarchy(perceived)
+        # 层级 3：压抑——消费防御分配后的残余量。
+        # 位置保持在流体更新之后，以维持其原本读取的流体状态不变。
+        self._suppression_dynamics(residual)
 
-        # 心境更新
-        self._update_mood()
+        # 心境的受迫项：本次事件按唤醒度把背景心境推离靶标。
+        # （拉回靶标的松弛项已由 _advance_time 按 dt 结算）
+        self._mood_event_dose(defended)
 
         self._update_dynamic_viscosity()
         self._fluid_dynamics(dt=self._psychological_dt_for(0.8))
@@ -557,13 +636,15 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 
         self.last_time = self._now()
 
-        # 审计日志：记录本次状态变更
+        # 审计日志：记录本次状态变更（含逐字段 delta，可独立复核转移）
         if self.audit_logger:
+            after = self.snapshot()
             self.audit_logger.log(
                 "process_vector",
                 {"vector": vector, "raw_intensity": raw_intensity,
                  "event_id": event_id},
-                self.snapshot(),
+                after,
+                delta=AuditLogger.snapshot_delta(before, after),
             )
 
     # ==================================================================
@@ -601,6 +682,7 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         if hours <= 0:
             return
         seconds = hours * 3600.0
+        before = self.snapshot()   # 审计基线
 
         # 推进时钟
         if self._clock_override is not None:
@@ -633,12 +715,16 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         self._heal_traumas(seconds * self.DREAM_TRAUMA_HEAL_BOOST)
 
         # ── 睡眠后意识重新上线：更新心境和粘滞度 ──
-        self._update_mood()
+        # 睡眠期间的松弛已由前面的 _advance_time 按 dt 结算，
+        # 此处不再重复松弛，保留下面的显式唤醒重置。
+        self._update_mood(dt=0.0)
         self._update_dynamic_viscosity()
 
         # 审计日志
         if self.audit_logger:
-            self.audit_logger.log("sleep", {"hours": hours}, self.snapshot())
+            after = self.snapshot()
+            self.audit_logger.log("sleep", {"hours": hours}, after,
+                                  delta=AuditLogger.snapshot_delta(before, after))
 
     # ==================================================================
     # V8.0 公共入口 4：设定预期
@@ -652,6 +738,7 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             valence: 预期效价 [-1, 1]（正向=期待好事，负向=担心坏事）
             confidence: 确信度 [0, 1]
         """
+        before = self.snapshot()   # 审计基线
         self.expected_events[event_id] = {
             "valence": max(-1.0, min(1.0, valence)),
             "confidence": max(0.0, min(1.0, confidence)),
@@ -661,10 +748,12 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 
         # 审计日志
         if self.audit_logger:
+            after = self.snapshot()
             self.audit_logger.log(
                 "expect",
                 {"event_id": event_id, "valence": valence, "confidence": confidence},
-                self.snapshot(),
+                after,
+                delta=AuditLogger.snapshot_delta(before, after),
             )
 
     # ==================================================================
@@ -678,6 +767,7 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             magnitude: 失调强度 [0, 1]
             belief_domain: 冲突的信念领域（如 "诚实"、"忠诚"）
         """
+        before = self.snapshot()   # 审计基线
         self.cognitive_dissonance = min(1.0, self.cognitive_dissonance + magnitude)
         # 失调立即表现为内在张力
         self.fluid["张力"] = min(1.0, self.fluid["张力"] + magnitude * 0.4)
@@ -687,10 +777,12 @@ class SPLPureCoreV7_3:  # 类名保持兼容
 
         # 审计日志
         if self.audit_logger:
+            after = self.snapshot()
             self.audit_logger.log(
                 "induce_dissonance",
                 {"magnitude": magnitude, "belief_domain": belief_domain},
-                self.snapshot(),
+                after,
+                delta=AuditLogger.snapshot_delta(before, after),
             )
 
     # ==================================================================
@@ -711,6 +803,7 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             "latent_pressure": self.latent_pressure,
             "cognitive_dissonance": self.cognitive_dissonance,
             "sleep_debt": self.sleep_debt,
+            "arousal_recent": self.arousal_recent,
             "trauma": dict(self.trauma_state),
             "memory_count": len(self.memory_traces),
             "expected_count": len(self.expected_events),
@@ -766,8 +859,8 @@ class SPLPureCoreV7_3:  # 类名保持兼容
             self.time_compress_base = 0.0
         self._fluid_to_system_feedback()
         self.fatigue = max(0.0, self.fatigue - self.FATIGUE_RECOVER * dt)
-        # V8.0: 心境随时间缓慢漂移
-        self._update_mood()
+        # V8.0: 心境随时间缓慢漂移（按 dt 一致地松弛）
+        self._update_mood(dt=dt)
 
         self.last_time = now
 
@@ -1184,15 +1277,63 @@ class SPLPureCoreV7_3:  # 类名保持兼容
     # ==================================================================
     # 14. V8.0 心境更新（慢变量）
     # ==================================================================
-    def _update_mood(self):
+    def _mood_event_dose(self, v: Dict[str, float]):
+        """事件对心境的受迫项（事件驱动）。
+
+        事件的唤醒度（threat / belonging / autonomy 的绝对幅度）决定这次
+        事件把背景心境推开多远：越强烈的情绪，心境被带得越远。
+
+        这里吃的是已被防御机制削减后的向量——被否认的事件不应对背景心境
+        产生与其表露程度相称的冲击。
+
+        与 _update_mood 的分工：
+            _mood_event_dose —— 受迫：把心境推离靶标（位移，依赖事件）
+            _update_mood     —— 阻尼：把心境拉回靶标（松弛，依赖时间）
         """
-        心境是慢变量，由以下因素缓慢牵引：
+        arousal = (abs(v.get("threat", 0.0))
+                   + abs(v.get("belonging", 0.0))
+                   + abs(v.get("autonomy", 0.0)))
+        if arousal <= 0.0:
+            return
+        arousal = min(1.0, arousal)
+
+        # 唤醒进入慢记忆，供松弛速率使用：强情绪更易消退
+        self.arousal_recent += ((arousal - self.arousal_recent)
+                                * self.MOOD_AROUSAL_EMA)
+
+        b = v.get("belonging", 0.0)
+        t = max(0.0, v.get("threat", 0.0))
+        self.mood["愉悦"] = max(0.0, min(1.0, self.mood["愉悦"]
+                               + self.MOOD_DOSE_PLEASANT * arousal * b))
+        self.mood["紧张"] = max(0.0, min(1.0, self.mood["紧张"]
+                               + self.MOOD_DOSE_TENSION * arousal
+                               * (t + max(0.0, -b))))
+        self.mood["精力"] = max(0.0, min(1.0, self.mood["精力"]
+                               + self.MOOD_DOSE_VIGOR * arousal
+                               * max(0.0, v.get("autonomy", 0.0))))
+
+    def _update_mood(self, dt: Optional[float] = None):
+        """
+        心境是慢变量，按时间松弛到靶标。
+
+        靶标由以下因素牵引：
         - 流体情绪的平均水平（持续愤怒 → 心境紧张上升）
         - 自尊（低自尊 → 心境愉悦下降）
         - 睡眠债（缺觉 → 心境精力下降、紧张上升）
         - 认知失调（内心冲突 → 心境紧张上升）
 
-        惯性极大——MOOD_INERTIA 保证每步只微量移动。
+        收敛速率不是常数，而是由近期唤醒动态计算：
+
+            k     = MOOD_RATE_BASE * (1 + MOOD_AROUSAL_GAIN * arousal_recent)
+            alpha = 1 - exp(-k * dt)
+
+        即"强情绪更易消退"：唤醒越高，心境惯性越小、回稳越快。
+        alpha 用 1-exp(-k*dt) 而非线性近似 k*dt，是为了与 _fluid_dynamics
+        保持同一种 dt 一致的积分形式——结果只依赖经过的真实时间，
+        不依赖调用被切分成多少步。
+
+        Args:
+            dt: 经过的真实秒数。None 时按 _now() - last_time 自动取值。
         """
         # 目标心境
         target_pleasant = (self.fluid["喜悦"] * 0.4
@@ -1218,8 +1359,18 @@ class SPLPureCoreV7_3:  # 类名保持兼容
                         + self.self_esteem * 0.3)
         target_vigor = max(0.0, min(1.0, target_vigor))
 
-        # 向目标缓慢移动
-        alpha = self.MOOD_INERTIA
+        if dt is None:
+            dt = max(0.0, self._now() - self.last_time)
+        dt = max(0.0, min(dt, 86400.0))
+
+        # 唤醒记忆随时间消散（没有新事件时，速率回到基础值）
+        self.arousal_recent *= math.exp(-dt / self.MOOD_AROUSAL_TAU)
+
+        # 向靶标松弛：速率随近期唤醒动态计算
+        k = self.MOOD_RATE_BASE * (1.0 + self.MOOD_AROUSAL_GAIN
+                                   * self.arousal_recent)
+        alpha = 1.0 - math.exp(-k * dt)
+        alpha = max(0.0, min(1.0, alpha))
         self.mood["愉悦"] += (target_pleasant - self.mood["愉悦"]) * alpha
         self.mood["紧张"] += (target_tension - self.mood["紧张"]) * alpha
         self.mood["精力"] += (target_vigor - self.mood["精力"]) * alpha
@@ -1385,9 +1536,14 @@ class SPLPureCoreV7_3:  # 类名保持兼容
     # ==================================================================
     # 19. V8.0 防御机制层级
     # ==================================================================
-    def _defense_hierarchy(self, v: Dict[str, float]):
+    def _defense_allocation(self, v: Dict[str, float]
+                            ) -> Tuple[Dict[str, float], Dict[str, float]]:
         """
-        防御机制的层级递进：
+        防御机制的分配阶段：层级 1 否认 → 层级 2 合理化。
+
+        必须在情绪写入流体之前调用。被否认 / 被合理化的部分要从
+        "被感知的向量"中真正扣除，而不是只记进仓库了事——否则
+        "否认成功 → 威胁感知降低"在情绪流体上并不成立。
 
         层级 1: 否认（Denial）
           "这不可能"——直接拒绝接受威胁性信息。
@@ -1398,20 +1554,22 @@ class SPLPureCoreV7_3:  # 类名保持兼容
           "其实也没那么糟"——给事件找一个能接受的理由。
           比否认成熟，但仍扭曲现实。
 
-        层级 3: 压抑（Suppression）
-          "我忍了"——承认但压下去。
-          最成熟的防御，但负荷最大。
+        层级 3: 压抑（Suppression）不在本方法内——它需要读取已经
+        含本次事件影响的流体状态，因此由调用方在 _vector_to_fluid
+        之后执行。
 
-        正常流程：威胁 → 少量否认 + 合理化 → 剩余进入压抑
-        高自尊者能更快跳过否认阶段。
+        Returns:
+            (defended, residual)
+            defended —— 实际驱动情绪流体的向量
+            residual —— 交给层级 3 压抑消费的剩余负性
         """
-        threat = v.get("threat", 0.0)
-        neg_belonging = max(0.0, -v.get("belonging", 0.0))
+        defended = dict(v)
+        threat = defended.get("threat", 0.0)
+        neg_belonging = max(0.0, -defended.get("belonging", 0.0))
         total_neg = threat + neg_belonging
 
         if total_neg < 0.1:
-            self._suppression_dynamics(v)
-            return
+            return defended, dict(defended)
 
         # 低自尊 → 更倾向否认（不敢面对）
         denial_tendency = 0.3 * (1.0 - self.self_esteem)
@@ -1420,37 +1578,34 @@ class SPLPureCoreV7_3:  # 类名保持兼容
         denied = total_neg * denial_tendency
         if denied > 0.02:
             self.denial_load += denied
-            # 否认成功 → 威胁感知暂时降低
+            # 否认成功 → 威胁感知确实降低
             remaining_denial = 1.0 - denial_tendency
-            v_modified = {
-                k: (vv * remaining_denial if k in ("threat",) else vv)
-                for k, vv in v.items()
-            }
-            if "belonging" in v_modified and v_modified["belonging"] < 0:
-                v_modified["belonging"] *= remaining_denial
-        else:
-            v_modified = dict(v)
+            if "threat" in defended:
+                defended["threat"] *= remaining_denial
+            if defended.get("belonging", 0.0) < 0:
+                defended["belonging"] *= remaining_denial
 
-        # 否认过载 → 现实侵入
-        if self.denial_load >= self.DENIAL_THRESHOLD and self.denial_burst_cd <= 0:
-            self._trigger_denial_burst()
+            # 否认过载 → 现实侵入
+            if (self.denial_load >= self.DENIAL_THRESHOLD
+                    and self.denial_burst_cd <= 0):
+                self._trigger_denial_burst()
 
         # 层级 2: 合理化
         rationalize_tendency = 0.2
-        remaining_neg = (v_modified.get("threat", 0.0)
-                         + max(0.0, -v_modified.get("belonging", 0.0)))
+        remaining_neg = (defended.get("threat", 0.0)
+                         + max(0.0, -defended.get("belonging", 0.0)))
         rationalized = remaining_neg * rationalize_tendency
         if rationalized > 0.02:
-            self.rationalization_load = min(1.0, self.rationalization_load + rationalized)
+            self.rationalization_load = min(1.0,
+                                           self.rationalization_load + rationalized)
             # 合理化让表面情绪更可控
-            for k in v_modified:
-                if k in ("threat",):
-                    v_modified[k] *= (1.0 - rationalize_tendency)
-                elif k == "belonging" and v_modified[k] < 0:
-                    v_modified[k] *= (1.0 - rationalize_tendency * 0.5)
+            if "threat" in defended:
+                defended["threat"] *= (1.0 - rationalize_tendency)
+            if defended.get("belonging", 0.0) < 0:
+                defended["belonging"] *= (1.0 - rationalize_tendency * 0.5)
 
-        # 层级 3: 压抑（原有系统处理剩余情绪）
-        self._suppression_dynamics(v_modified)
+        # 层级 3 的残余量由调用方在流体更新后消费
+        return defended, dict(defended)
 
     def _trigger_denial_burst(self):
         """否认过载 → 现实侵入。被否认的东西一次性涌回来。"""

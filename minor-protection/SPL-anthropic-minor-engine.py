@@ -4,7 +4,7 @@ import json
 import os
 import datetime
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Tuple, Callable
 
 
 # ================================================================
@@ -70,9 +70,70 @@ class AuditLogger:
             return {}
         keys = ("fluid", "mood", "self_esteem", "energy", "fatigue",
                 "excitation", "max_trust", "latent_pressure",
-                "cognitive_dissonance", "sleep_debt", "memory_count",
+                "cognitive_dissonance", "sleep_debt", "arousal_recent",
+                "memory_count",
                 "expected_count", "protective")
         return {k: snap.get(k) for k in keys if k in snap}
+
+    # 本变体无压抑/否认/合理化仓（机制级裁剪），故标量集与主引擎不同。
+    DELTA_SCALARS = (
+        "self_esteem", "energy", "fatigue", "excitation", "max_trust",
+        "latent_pressure", "cognitive_dissonance", "sleep_debt",
+        "arousal_recent", "memory_count", "expected_count",
+    )
+    # protective 内含 risk_level / crisis_flags 等非数值字段，
+    # 但"是否新增危机标记"正是合规审计最关心的事件，故一并纳入。
+    DELTA_NESTED = ("fluid", "mood", "protective")
+
+    # ── 状态转移归因 ──
+    @staticmethod
+    def _put_delta(delta: Dict[str, Any], key: str, b: Any, a: Any) -> None:
+        """写入单个字段的变化。
+
+        两侧都是数值时附带 delta；非数值（枚举/列表/布尔）只记录变化本身，
+        因为"新增一个危机标记"本身就是审计事件，尽管它没有算术差。
+        """
+        if b == a:
+            return
+        entry: Dict[str, Any] = {"before": b, "after": a}
+        if (isinstance(b, (int, float)) and isinstance(a, (int, float))
+                and not isinstance(b, bool) and not isinstance(a, bool)):
+            entry["delta"] = round(a - b, 6)
+        delta[key] = entry
+
+    @classmethod
+    def snapshot_delta(cls, before: Dict[str, Any], after: Dict[str, Any]
+                       ) -> Dict[str, Any]:
+        """计算两次快照之间的逐字段状态变化。
+
+        审计记录只落终值状态时，能证明"某时刻状态是什么"，但不能归因
+        "哪次输入造成了哪些字段的多少变化"。本方法补上这一环，使状态转移
+        可被独立复核，而不必信任实现方。
+
+        Args:
+            before: 状态变更前的 snapshot()
+            after:  状态变更后的 snapshot()
+
+        Returns:
+            {"字段": {"before": x, "after": y, "delta": d}, ...}
+            仅包含实际发生变化的字段。标量直接用字段名；字典子模型展开为
+            "fluid.喜悦" 这样的点号路径。
+        """
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return {}
+        delta: Dict[str, Any] = {}
+        for k in cls.DELTA_SCALARS:
+            b, a = before.get(k), after.get(k)
+            if b is None and a is None:
+                continue
+            cls._put_delta(delta, k, b, a)
+        for group in cls.DELTA_NESTED:
+            gb, ga = before.get(group), after.get(group)
+            if not isinstance(gb, dict) or not isinstance(ga, dict):
+                continue
+            for k in sorted(set(gb) | set(ga)):
+                cls._put_delta(delta, "%s.%s" % (group, k), gb.get(k), ga.get(k))
+        return delta
 
     def export_path(self) -> Optional[str]:
         return self.log_file if os.path.exists(self.log_file) else None
@@ -334,7 +395,18 @@ class SPLMinorPureCore:
         "紧张": 0.2,
         "精力": 0.7,
     })
-    MOOD_INERTIA: float = 0.0003
+    # 心境收敛速率不再是固定常数：
+    #   MOOD_RATE_BASE —— 向靶标松弛的基础速率（每秒）。
+    #     0.0003/s 对应"约每秒调用一次"下旧的"每步走一格"常数，
+    #     但现在它与调用次数无关，只与经过的真实时间有关。
+    MOOD_RATE_BASE: float = 0.0003
+    MOOD_AROUSAL_GAIN: float = 2.0    # 唤醒对方松弛速率的放大倍数
+    MOOD_AROUSAL_TAU: float = 1800.0  # 唤醒记忆的时间常数（30 分钟）
+    MOOD_AROUSAL_EMA: float = 0.05    # 唤醒进入慢记忆的速率
+    MOOD_DOSE_PLEASANT: float = 0.10  # 事件对愉悦的位移增益
+    MOOD_DOSE_TENSION: float = 0.12   # 事件对紧张的位移增益
+    MOOD_DOSE_VIGOR: float = 0.05     # 事件对精力的位移增益
+    arousal_recent: float = 0.0       # 近期事件唤醒的慢记忆 [0,1]
 
     # ---------- 睡眠系统（保留；未成年人睡眠周期更关键） ----------
     sleep_debt: float = 0.0
@@ -469,6 +541,7 @@ class SPLMinorPureCore:
     def process_vector(self, vector: Dict[str, float], raw_intensity: float = 1.0,
                        event_id: str = ""):
         self._advance_time()
+        before = self.snapshot()   # 审计基线：本次状态转移的 delta 起点
 
         surprise = 0.0
         if event_id and event_id in self.expected_events:
@@ -492,7 +565,9 @@ class SPLMinorPureCore:
         self._vector_to_fluid(perceived)
         self._update_self_esteem(perceived)
         self._dissonance_dynamics(perceived)
-        self._update_mood()
+        # 心境的受迫项：本次事件按唤醒度把背景心境推离靶标。
+        # （拉回靶标的松弛项已由 _advance_time 按 dt 结算）
+        self._mood_event_dose(perceived)
         self._update_dynamic_viscosity()
         self._fluid_dynamics(dt=self._psychological_dt_for(0.8))
         self._fluid_to_system_feedback()
@@ -505,13 +580,15 @@ class SPLMinorPureCore:
         self._evaluate_risk()
         self.last_time = self._now()
 
-        # 审计日志：记录本次状态变更
+        # 审计日志：记录本次状态变更（含逐字段 delta，可独立复核转移）
         if self.audit_logger:
+            after = self.snapshot()
             self.audit_logger.log(
                 "process_vector",
                 {"vector": vector, "raw_intensity": raw_intensity,
                  "event_id": event_id},
-                self.snapshot(),
+                after,
+                delta=AuditLogger.snapshot_delta(before, after),
             )
 
     # ==================================================================
@@ -536,6 +613,7 @@ class SPLMinorPureCore:
         if hours <= 0:
             return
         seconds = hours * 3600.0
+        before = self.snapshot()   # 审计基线
 
         if self._clock_override is not None:
             self._clock_override += seconds
@@ -559,17 +637,22 @@ class SPLMinorPureCore:
         self.fatigue = max(0.0, self.fatigue - 0.5 * hours)
 
         self._session_seconds = max(0.0, self._session_seconds - hours * 120.0)  # 睡后冷却会话计
-        self._update_mood()
+        # 睡眠期间的松弛已由前面的 _advance_time 按 dt 结算，
+        # 此处不再重复松弛，保留下面的显式唤醒重置。
+        self._update_mood(dt=0.0)
         self._update_dynamic_viscosity()
 
         # 审计日志
         if self.audit_logger:
-            self.audit_logger.log("sleep", {"hours": hours}, self.snapshot())
+            after = self.snapshot()
+            self.audit_logger.log("sleep", {"hours": hours}, after,
+                                  delta=AuditLogger.snapshot_delta(before, after))
 
     # ==================================================================
     # 公共入口 4：设定预期
     # ==================================================================
     def expect(self, event_id: str, valence: float, confidence: float = 0.5):
+        before = self.snapshot()   # 审计基线
         self.expected_events[event_id] = {
             "valence": max(-1.0, min(1.0, valence)),
             "confidence": max(0.0, min(1.0, confidence)),
@@ -579,16 +662,19 @@ class SPLMinorPureCore:
 
         # 审计日志
         if self.audit_logger:
+            after = self.snapshot()
             self.audit_logger.log(
                 "expect",
                 {"event_id": event_id, "valence": valence, "confidence": confidence},
-                self.snapshot(),
+                after,
+                delta=AuditLogger.snapshot_delta(before, after),
             )
 
     # ==================================================================
     # 公共入口 5：触发认知失调
     # ==================================================================
     def induce_dissonance(self, magnitude: float, belief_domain: str = ""):
+        before = self.snapshot()   # 审计基线
         self.cognitive_dissonance = min(1.0, self.cognitive_dissonance + magnitude)
         self.fluid["张力"] = min(1.0, self.fluid["张力"] + magnitude * 0.4)
         self.fluid["愧疚"] = min(1.0, self.fluid["愧疚"] + magnitude * 0.3)
@@ -597,10 +683,12 @@ class SPLMinorPureCore:
 
         # 审计日志
         if self.audit_logger:
+            after = self.snapshot()
             self.audit_logger.log(
                 "induce_dissonance",
                 {"magnitude": magnitude, "belief_domain": belief_domain},
-                self.snapshot(),
+                after,
+                delta=AuditLogger.snapshot_delta(before, after),
             )
 
     # ==================================================================
@@ -618,6 +706,7 @@ class SPLMinorPureCore:
             "latent_pressure": self.latent_pressure,
             "cognitive_dissonance": self.cognitive_dissonance,
             "sleep_debt": self.sleep_debt,
+            "arousal_recent": self.arousal_recent,
             "memory_count": len(self.memory_traces),
             "expected_count": len(self.expected_events),
             "last_perceived": dict(self.last_perceived),
@@ -768,7 +857,7 @@ class SPLMinorPureCore:
             self.time_compress_base = 0.0
         self._fluid_to_system_feedback()
         self.fatigue = max(0.0, self.fatigue - self.FATIGUE_RECOVER * dt)
-        self._update_mood()
+        self._update_mood(dt=dt)
 
         self.last_time = now
 
@@ -1110,7 +1199,57 @@ class SPLMinorPureCore:
     # ==================================================================
     # 12. 心境更新（慢变量）
     # ==================================================================
-    def _update_mood(self):
+    def _mood_event_dose(self, v: Dict[str, float]):
+        """事件对心境的受迫项（事件驱动）。
+
+        事件的唤醒度（threat / belonging / autonomy 的绝对幅度）决定这次
+        事件把背景心境推开多远：越强烈的情绪，心境被带得越远。
+
+        本变体没有防御机制层，因此这里直接使用感知向量——
+        不存在主引擎那种"被否认的事件"需要被扣减的情形。
+
+        与 _update_mood 的分工：
+            _mood_event_dose —— 受迫：把心境推离靶标（位移，依赖事件）
+            _update_mood     —— 阻尼：把心境拉回靶标（松弛，依赖时间）
+        """
+        arousal = (abs(v.get("threat", 0.0))
+                   + abs(v.get("belonging", 0.0))
+                   + abs(v.get("autonomy", 0.0)))
+        if arousal <= 0.0:
+            return
+        arousal = min(1.0, arousal)
+
+        # 唤醒进入慢记忆，供松弛速率使用：强情绪更易消退
+        self.arousal_recent += ((arousal - self.arousal_recent)
+                                * self.MOOD_AROUSAL_EMA)
+
+        b = v.get("belonging", 0.0)
+        t = max(0.0, v.get("threat", 0.0))
+        self.mood["愉悦"] = max(0.0, min(1.0, self.mood["愉悦"]
+                               + self.MOOD_DOSE_PLEASANT * arousal * b))
+        self.mood["紧张"] = max(0.0, min(1.0, self.mood["紧张"]
+                               + self.MOOD_DOSE_TENSION * arousal
+                               * (t + max(0.0, -b))))
+        self.mood["精力"] = max(0.0, min(1.0, self.mood["精力"]
+                               + self.MOOD_DOSE_VIGOR * arousal
+                               * max(0.0, v.get("autonomy", 0.0))))
+
+    def _update_mood(self, dt: Optional[float] = None):
+        """心境是慢变量，按时间松弛到靶标。
+
+        收敛速率不是常数，而是由近期唤醒动态计算：
+
+            k     = MOOD_RATE_BASE * (1 + MOOD_AROUSAL_GAIN * arousal_recent)
+            alpha = 1 - exp(-k * dt)
+
+        即"强情绪更易消退"：唤醒越高，心境惯性越小、回稳越快。
+        alpha 用 1-exp(-k*dt) 而非线性近似 k*dt，是为了与 _fluid_dynamics
+        保持同一种 dt 一致的积分形式——结果只依赖经过的真实时间，
+        而不依赖调用被切分成多少步。
+
+        Args:
+            dt: 经过的真实秒数。None 时按 _now() - last_time 自动取值。
+        """
         target_pleasant = (self.fluid["喜悦"] * 0.4
                            - self.fluid["愤怒"] * 0.3
                            - self.fluid["恐惧"] * 0.25
@@ -1134,7 +1273,18 @@ class SPLMinorPureCore:
                         + self.self_esteem * 0.3)
         target_vigor = max(0.0, min(1.0, target_vigor))
 
-        alpha = self.MOOD_INERTIA
+        if dt is None:
+            dt = max(0.0, self._now() - self.last_time)
+        dt = max(0.0, min(dt, 86400.0))
+
+        # 唤醒记忆随时间消散（没有新事件时，速率回到基础值）
+        self.arousal_recent *= math.exp(-dt / self.MOOD_AROUSAL_TAU)
+
+        # 向靶标松弛：速率随近期唤醒动态计算
+        k = self.MOOD_RATE_BASE * (1.0 + self.MOOD_AROUSAL_GAIN
+                                   * self.arousal_recent)
+        alpha = 1.0 - math.exp(-k * dt)
+        alpha = max(0.0, min(1.0, alpha))
         self.mood["愉悦"] += (target_pleasant - self.mood["愉悦"]) * alpha
         self.mood["紧张"] += (target_tension - self.mood["紧张"]) * alpha
         self.mood["精力"] += (target_vigor - self.mood["精力"]) * alpha
